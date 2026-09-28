@@ -1,55 +1,23 @@
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-} from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
-  LayoutDashboard,
   Headphones,
   Sparkles,
   BookOpen,
   BarChart3,
+  LayoutDashboard,
 } from 'lucide-react';
 
 import { Navbar } from './components/Navbar';
-
-import {
-  Sidebar,
-  ActiveTab,
-} from './components/Sidebar';
-
-import {
-  LiveConsoleView,
-} from './components/LiveConsole/LiveConsoleView';
-
-import {
-  ScenariosView,
-} from './components/ScenariosView';
-
-import {
-  KnowledgeBaseView,
-} from './components/KnowledgeBaseView';
-
-import {
-  ReplayModeView,
-} from './components/ReplayModeView';
-
-import {
-  ManualModeModal,
-} from './components/ManualModeModal';
-
-import {
-  LoginView,
-} from './components/LoginView';
-
-import {
-  PolicyManagementView,
-} from './components/PolicyManagementView';
-
-import {
-  SimulatorSetupView,
-} from './components/SimulatorSetupView';
+import { Sidebar, ActiveTab } from './components/Sidebar';
+import { LiveConsoleView } from './components/LiveConsole/LiveConsoleView';
+import { ScenariosView } from './components/ScenariosView';
+import { KnowledgeBaseView } from './components/KnowledgeBaseView';
+import { ReplayModeView } from './components/ReplayModeView';
+import { ManualModeModal } from './components/ManualModeModal';
+import { LoginView } from './components/LoginView';
+import { PolicyManagementView } from './components/PolicyManagementView';
+import { SimulatorSetupView } from './components/SimulatorSetupView';
 
 import {
   InteractionMode,
@@ -62,6 +30,7 @@ import {
   KnowledgeDocument,
   AgentProfile,
   DifficultyLevel,
+  SimulatorAnalysis,
 } from './types';
 
 import {
@@ -72,7 +41,6 @@ import {
 
 import {
   analyzeTurnApi,
-  buildSimulatorAnalysis,
   simulateCustomerTurnApi,
   startSimulatorApi,
   generateScenarioApi,
@@ -193,21 +161,14 @@ export default function App() {
     fetchCurrentUserApi()
       .then((user) => {
         if (user) {
-          applyAuthenticatedUser(
-            user
-          );
+          applyAuthenticatedUser(user);
         }
 
-        setIsAuthLoading(
-          false
-        );
+        setIsAuthLoading(false);
       })
       .catch(() => {
         setCurrentUser(null);
-
-        setIsAuthLoading(
-          false
-        );
+        setIsAuthLoading(false);
       });
   }, []);
 
@@ -218,21 +179,13 @@ export default function App() {
   const handleLoginSuccess = (
     user: UserAccount
   ) => {
-    applyAuthenticatedUser(
-      user
-    );
+    applyAuthenticatedUser(user);
 
-    setActiveTab(
-      'dashboard'
-    );
+    setActiveTab('dashboard');
 
-    setCurrentMode(
-      'simulator'
-    );
+    setCurrentMode('simulator');
 
-    setIsMobileMenuOpen(
-      false
-    );
+    setIsMobileMenuOpen(false);
   };
 
   // ============================================================
@@ -240,39 +193,32 @@ export default function App() {
   // ============================================================
 
   const handleLogout = async () => {
-    await logoutApi();
+    try {
+      await logoutApi();
+    } catch (error) {
+      console.error(
+        'Logout failed:',
+        error
+      );
+    }
 
     setCurrentUser(null);
 
-    setActiveTab(
-      'dashboard'
-    );
+    setActiveTab('dashboard');
 
-    setCurrentMode(
-      'simulator'
-    );
+    setCurrentMode('simulator');
 
-    setIsMobileMenuOpen(
-      false
-    );
+    setIsMobileMenuOpen(false);
 
-    setSimulatorConfig(
-      null
-    );
+    setSimulatorConfig(null);
 
-    setSimulatorSessionId(
-      null
-    );
+    setSimulatorSessionId(null);
 
     setMessages([]);
 
-    setCurrentAnalysis(
-      undefined
-    );
+    setCurrentAnalysis(undefined);
 
-    setHasActiveSession(
-      false
-    );
+    setHasActiveSession(false);
   };
 
   // ============================================================
@@ -309,9 +255,9 @@ export default function App() {
     );
 
   const [currentAnalysis, setCurrentAnalysis] =
-    useState<
-      MessageAnalysis | undefined
-    >(undefined);
+    useState<MessageAnalysis | undefined>(
+      undefined
+    );
 
   const [isAnalyzing, setIsAnalyzing] =
     useState(false);
@@ -337,53 +283,142 @@ export default function App() {
     useState(false);
 
   // ============================================================
-  // START EXISTING SCENARIO SESSION
+  // TYPE NORMALIZATION
+  // ============================================================
+
+  /*
+   * SimulatorAnalysis and MessageAnalysis contain the same
+   * Task 4 core analysis fields.
+   *
+   * MessageAnalysis also has an index signature because it
+   * supports additional backend analysis fields.
+   *
+   * This adapter keeps the backend response unchanged while
+   * making it compatible with the ChatMessage type.
+   */
+  const normalizeSimulatorAnalysis = (
+    analysis: SimulatorAnalysis
+  ): MessageAnalysis => {
+    /*
+     * IMPORTANT:
+     * The simulator backend is the source of truth for Tasks 4–6.
+     *
+     * Do not rebuild or selectively copy the analysis object here.
+     * The old implementation copied only the seven Task-4 fields and
+     * silently discarded Task-5 RAG recommendations and Task-6 risk
+     * metadata (including Critical escalation).
+     *
+     * Keep every backend field while normalising only the legacy aliases
+     * used by older UI components.
+     */
+    const backendAnalysis = analysis as MessageAnalysis;
+
+    return {
+      ...backendAnalysis,
+
+      intent:
+        backendAnalysis.intent ?? 'Unknown',
+
+      emotion:
+        backendAnalysis.emotion ?? 'Unknown',
+
+      sentiment:
+        backendAnalysis.sentiment ?? 'Neutral',
+
+      frustration_level:
+        Number(
+          backendAnalysis.frustration_level ??
+          backendAnalysis.frustrationLevel ??
+          0
+        ),
+
+      satisfaction_trend:
+        backendAnalysis.satisfaction_trend ?? 'Stable',
+
+      escalation_risk:
+        (backendAnalysis.escalation_risk ??
+          backendAnalysis.escalationLevel ??
+          'Low') as MessageAnalysis['escalation_risk'],
+
+      confidence:
+        Number(
+          backendAnalysis.confidence ??
+          backendAnalysis.intentConfidence ??
+          0
+        ),
+
+      intentConfidence:
+        backendAnalysis.intentConfidence ??
+        backendAnalysis.confidence,
+
+      sentimentConfidence:
+        backendAnalysis.sentimentConfidence ??
+        backendAnalysis.confidence,
+
+      frustrationLevel:
+        backendAnalysis.frustrationLevel ??
+        backendAnalysis.frustration_level,
+    };
+  };
+
+  // Prevent unused-state compiler/linter problems
+  void simulatorConfig;
+  void sessionStartTime;
+
+  // ============================================================
+  // START EXISTING LOCAL SCENARIO SESSION
   // ============================================================
 
   const handleStartScenario = useCallback(
     (scenario: Scenario) => {
-      setActiveScenario(
-        scenario
-      );
+      setActiveScenario(scenario);
 
       const openingMsg: ChatMessage = {
         id: `msg-${Date.now()}-cust-0`,
 
         sender: 'customer',
 
-        text:
-          scenario.customerOpeningMessage,
+        text: scenario.customerOpeningMessage,
 
-        timestamp:
-          new Date().toLocaleTimeString(
-            [],
-            {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-            }
-          ),
+        timestamp: new Date().toLocaleTimeString(
+          [],
+          {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }
+        ),
 
         customerState: {
           frustration:
-            scenario.customerPersona
-              .baseFrustration,
+            Number(
+              scenario.customerPersona
+                .baseFrustration
+            ),
 
           trust:
-            scenario.customerPersona
-              .trust,
+            Number(
+              scenario.customerPersona
+                .trust
+            ),
 
           patience:
-            scenario.customerPersona
-              .patience,
+            Number(
+              scenario.customerPersona
+                .patience
+            ),
 
           satisfaction:
-            scenario.customerPersona
-              .satisfaction,
+            Number(
+              scenario.customerPersona
+                .satisfaction
+            ),
 
           escalationIntent:
-            scenario.customerPersona
-              .escalationIntent,
+            Number(
+              scenario.customerPersona
+                .escalationIntent
+            ),
         },
       };
 
@@ -397,17 +432,15 @@ export default function App() {
         Date.now()
       );
 
-      setHasActiveSession(
-        true
-      );
+      setHasActiveSession(true);
 
       /*
        * This is the existing local scenario flow.
-       * It does not create a backend simulator session.
+       *
+       * It is separate from the configured backend
+       * simulator session.
        */
-      setSimulatorSessionId(
-        null
-      );
+      setSimulatorSessionId(null);
 
       setActiveTab(
         'live_console'
@@ -417,9 +450,7 @@ export default function App() {
         'simulator'
       );
 
-      setIsAnalyzing(
-        true
-      );
+      setIsAnalyzing(true);
 
       analyzeTurnApi({
         customerMessage:
@@ -443,11 +474,13 @@ export default function App() {
             'Initial turn analysis failed:',
             error
           );
+
+          setCurrentAnalysis(
+            undefined
+          );
         })
         .finally(() => {
-          setIsAnalyzing(
-            false
-          );
+          setIsAnalyzing(false);
         });
     },
     [knowledgeDocs]
@@ -497,29 +530,25 @@ export default function App() {
         backendConfig
       );
 
-      setSimulatorSessionId(
-        null
-      );
+      setSimulatorSessionId(null);
 
       setMessages([]);
 
-      setCurrentAnalysis(
-        undefined
-      );
+      setCurrentAnalysis(undefined);
 
-      setIsSimulatingCustomer(
-        true
-      );
+      setIsSimulatingCustomer(true);
 
-      setIsAnalyzing(
-        false
-      );
+      setIsAnalyzing(false);
 
       try {
         /*
-         * REAL BACKEND:
+         * REAL BACKEND
          *
          * POST /simulator/start
+         *
+         * IMPORTANT:
+         * The backend Task 4 analysis is returned
+         * directly in result.analysis.
          */
 
         const result =
@@ -536,18 +565,9 @@ export default function App() {
           result.session_id
         );
 
-        /*
-         * The actual backend response contains:
-         *
-         * customer_message
-         * state.frustration
-         * state.trust
-         * state.patience
-         * state.satisfaction
-         * state.escalation_intent
-         *
-         * We use those values directly.
-         */
+        // --------------------------------------------------------
+        // CUSTOMER OPENING MESSAGE
+        // --------------------------------------------------------
 
         const openingMsg: ChatMessage = {
           id: `msg-${Date.now()}-cust-0`,
@@ -567,22 +587,41 @@ export default function App() {
               }
             ),
 
+          /*
+           * IMPORTANT:
+           * Task 4 analysis comes directly from backend.
+           */
+          analysis:
+            normalizeSimulatorAnalysis(
+              result.analysis
+            ),
+
           customerState: {
             frustration:
-              result.state.frustration,
+              Number(
+                result.state.frustration
+              ),
 
             trust:
-              result.state.trust,
+              Number(
+                result.state.trust
+              ),
 
             patience:
-              result.state.patience,
+              Number(
+                result.state.patience
+              ),
 
             satisfaction:
-              result.state.satisfaction,
+              Number(
+                result.state.satisfaction
+              ),
 
             escalationIntent:
-              result.state
-                .escalation_intent,
+              Number(
+                result.state
+                  .escalation_intent
+              ),
           },
         };
 
@@ -596,9 +635,11 @@ export default function App() {
           Date.now()
         );
 
-        setHasActiveSession(
-          true
-        );
+        setHasActiveSession(true);
+
+        // --------------------------------------------------------
+        // MATCH FRONTEND SCENARIO IF AVAILABLE
+        // --------------------------------------------------------
 
         const matchedScenario =
           scenarios.find(
@@ -623,56 +664,31 @@ export default function App() {
           );
         }
 
-        const scenarioForAnalysis =
-          matchedScenario ||
-          activeScenario;
-
         /*
-         * IMPORTANT:
+         * ========================================================
+         * TASK 4 ANALYSIS
+         * ========================================================
          *
-         * We do NOT call:
+         * DO NOT build analysis from simulator state.
          *
-         * POST /api/analyze-turn
+         * The backend already calculates:
          *
-         * because that endpoint does not exist
-         * in the current backend Swagger.
+         * - intent
+         * - emotion
+         * - sentiment
+         * - frustration_level
+         * - satisfaction_trend
+         * - escalation_risk
+         * - confidence
          *
-         * The simulator state itself is used to
-         * populate the existing Live Analysis UI.
+         * Therefore the backend response is the
+         * single source of truth.
          */
 
-        const analysis =
-          buildSimulatorAnalysis({
-            scenario:
-              scenarioForAnalysis,
-
-            state: {
-              emotion:
-                result.state.emotion,
-
-              frustration:
-                result.state.frustration,
-
-              patience:
-                result.state.patience,
-
-              satisfaction:
-                result.state.satisfaction,
-
-              trust:
-                result.state.trust,
-
-              escalation_intent:
-                result.state
-                  .escalation_intent,
-            },
-
-            customerMessage:
-              result.customer_message,
-          });
-
         setCurrentAnalysis(
-          analysis
+          normalizeSimulatorAnalysis(
+            result.analysis
+          )
         );
 
         setCurrentMode(
@@ -693,17 +709,23 @@ export default function App() {
             ? error.message
             : 'Failed to start simulator session.';
 
-        window.alert(
-          message
+        window.alert(message);
+
+        setSimulatorSessionId(null);
+
+        setHasActiveSession(false);
+
+        setMessages([]);
+
+        setCurrentAnalysis(
+          undefined
         );
       } finally {
         setIsSimulatingCustomer(
           false
         );
 
-        setIsAnalyzing(
-          false
-        );
+        setIsAnalyzing(false);
       }
     };
 
@@ -736,6 +758,10 @@ export default function App() {
     const trimmedText =
       text.trim();
 
+    // ----------------------------------------------------------
+    // AGENT MESSAGE
+    // ----------------------------------------------------------
+
     const agentMsg: ChatMessage = {
       id: `msg-${Date.now()}-agent`,
 
@@ -766,22 +792,20 @@ export default function App() {
 
     setInputText('');
 
-    setIsSimulatingCustomer(
-      true
-    );
+    setIsSimulatingCustomer(true);
 
     try {
       /*
-       * REAL BACKEND:
+       * REAL BACKEND
        *
        * POST /simulator/message
        *
-       * {
-       *   "session_id": 6,
-       *   "agent_response": "..."
-       * }
+       * The backend:
        *
-       * This matches the current Swagger contract.
+       * 1. receives agent response
+       * 2. generates next customer message
+       * 3. analyzes customer message using Task 4
+       * 4. returns analysis
        */
 
       const simResult =
@@ -792,6 +816,10 @@ export default function App() {
           agentResponse:
             trimmedText,
         });
+
+      // ----------------------------------------------------------
+      // NEXT CUSTOMER MESSAGE
+      // ----------------------------------------------------------
 
       const nextCustMsg: ChatMessage = {
         id: `msg-${Date.now()}-cust`,
@@ -811,26 +839,41 @@ export default function App() {
             }
           ),
 
+        /*
+         * Backend Task 4 analysis is attached
+         * directly to this customer message.
+         */
+        analysis:
+          normalizeSimulatorAnalysis(
+            simResult.analysis
+          ),
+
         customerState: {
           frustration:
-            simResult.state
-              .frustration,
+            Number(
+              simResult.state.frustration
+            ),
 
           trust:
-            simResult.state
-              .trust,
+            Number(
+              simResult.state.trust
+            ),
 
           patience:
-            simResult.state
-              .patience,
+            Number(
+              simResult.state.patience
+            ),
 
           satisfaction:
-            simResult.state
-              .satisfaction,
+            Number(
+              simResult.state.satisfaction
+            ),
 
           escalationIntent:
-            simResult.state
-              .escalation_intent,
+            Number(
+              simResult.state
+                .escalation_intent
+            ),
         },
       };
 
@@ -844,60 +887,34 @@ export default function App() {
       );
 
       /*
-       * No /api/analyze-turn call here.
+       * ========================================================
+       * TASK 4 ANALYSIS
+       * ========================================================
        *
-       * /simulator/message already gives us
-       * the updated simulator state.
+       * IMPORTANT:
+       *
+       * Do NOT call buildSimulatorAnalysis().
+       *
+       * Do NOT derive intent from scenario category.
+       *
+       * Do NOT convert simulator frustration into
+       * percentages.
+       *
+       * Do NOT derive escalation risk from
+       * escalation_intent percentage.
+       *
+       * The backend has already performed Task 4 analysis.
        */
-
-      const analysis =
-        buildSimulatorAnalysis({
-          scenario:
-            activeScenario,
-
-          state: {
-            emotion:
-              simResult.state
-                .emotion,
-
-            frustration:
-              simResult.state
-                .frustration,
-
-            patience:
-              simResult.state
-                .patience,
-
-            satisfaction:
-              simResult.state
-                .satisfaction,
-
-            trust:
-              simResult.state
-                .trust,
-
-            escalation_intent:
-              simResult.state
-                .escalation_intent,
-          },
-
-          customerMessage:
-            simResult.customer_message,
-
-          lastAgentMessage:
-            trimmedText,
-        });
 
       setCurrentAnalysis(
-        analysis
+        normalizeSimulatorAnalysis(
+          simResult.analysis
+        )
       );
 
-      /*
-       * Backend session status.
-       *
-       * We do not fabricate another customer
-       * message or make another API request.
-       */
+      // ----------------------------------------------------------
+      // BACKEND SESSION STATUS
+      // ----------------------------------------------------------
 
       if (
         simResult.is_resolved ||
@@ -928,17 +945,13 @@ export default function App() {
           ? error.message
           : 'Failed to generate the next customer response.';
 
-      window.alert(
-        message
-      );
+      window.alert(message);
     } finally {
       setIsSimulatingCustomer(
         false
       );
 
-      setIsAnalyzing(
-        false
-      );
+      setIsAnalyzing(false);
     }
   };
 
@@ -952,30 +965,50 @@ export default function App() {
         return;
       }
 
-      setIsImprovingInput(
-        true
-      );
+      setIsImprovingInput(true);
 
       try {
+        /*
+         * Task 4 analysis does not contain
+         * suggestedResponses.
+         *
+         * Therefore we do not read:
+         *
+         * currentAnalysis.suggestedResponses
+         *
+         * Instead, provide a simple response
+         * improvement based on the actual Task 4
+         * analysis fields.
+         */
+
         if (
-          currentAnalysis
-            ?.suggestedResponses
-            ?.empathetic
+          currentAnalysis?.escalation_risk ===
+          'High'
         ) {
           setInputText(
-            currentAnalysis
-              .suggestedResponses
-              .empathetic
+            'I understand this is frustrating. I will take care of this and clearly explain the next steps for you.'
+          );
+        } else if (
+          currentAnalysis?.emotion ===
+          'confused'
+        ) {
+          setInputText(
+            'I understand. Let me explain the next steps clearly and help you through the process.'
+          );
+        } else if (
+          currentAnalysis?.sentiment ===
+          'Negative'
+        ) {
+          setInputText(
+            'I understand your concern, and I apologize for the inconvenience. Let me check the details and help resolve this for you.'
           );
         } else {
           setInputText(
-            'I understand why this is frustrating, and I apologize for the inconvenience. Let me personally investigate this issue and resolve it for you right now.'
+            'I understand your concern. Let me check the details and help you with the next steps.'
           );
         }
       } finally {
-        setIsImprovingInput(
-          false
-        );
+        setIsImprovingInput(false);
       }
     };
 
@@ -985,23 +1018,15 @@ export default function App() {
 
   const handleFinishSession =
     async () => {
-      setHasActiveSession(
-        false
-      );
+      setHasActiveSession(false);
 
-      setSimulatorSessionId(
-        null
-      );
+      setSimulatorSessionId(null);
 
-      setSimulatorConfig(
-        null
-      );
+      setSimulatorConfig(null);
 
       setMessages([]);
 
-      setCurrentAnalysis(
-        undefined
-      );
+      setCurrentAnalysis(undefined);
 
       setInputText('');
 
@@ -1061,13 +1086,15 @@ export default function App() {
       String(role).toLowerCase();
 
     if (
-      normalizedRole === 'admin'
+      normalizedRole ===
+      'admin'
     ) {
       return true;
     }
 
     if (
-      normalizedRole === 'employee'
+      normalizedRole ===
+      'employee'
     ) {
       return [
         'dashboard',
@@ -1079,7 +1106,8 @@ export default function App() {
     }
 
     if (
-      normalizedRole === 'user'
+      normalizedRole ===
+      'user'
     ) {
       return [
         'dashboard',
@@ -1115,6 +1143,16 @@ export default function App() {
 
           setSimulatorSessionId(
             null
+          );
+
+          setCurrentAnalysis(
+            undefined
+          );
+
+          setMessages([]);
+
+          setHasActiveSession(
+            false
           );
         }}
         className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 transition"
@@ -1250,56 +1288,71 @@ export default function App() {
         currentMode={
           currentMode
         }
+
         onSelectMode={
           setCurrentMode
         }
+
         userRole={
           currentUser.role
         }
+
         onChangeRole={
           setUserRole
         }
+
         coachingLevel={
           coachingLevel
         }
+
         onChangeCoachingLevel={
           setCoachingLevel
         }
+
         userProfile={
           userProfile
         }
+
         piiMaskingEnabled={
           piiMaskingEnabled
         }
+
         onTogglePiiMasking={() =>
           setPiiMaskingEnabled(
             (previous) =>
               !previous
           )
         }
+
         activeLanguage={
           activeLanguage
         }
+
         onChangeLanguage={
           setActiveLanguage
         }
+
         onOpenQuickManual={() =>
           setIsManualModalOpen(
             true
           )
         }
+
         isMobileMenuOpen={
           isMobileMenuOpen
         }
+
         onToggleMobileMenu={() =>
           setIsMobileMenuOpen(
             (previous) =>
               !previous
           )
         }
+
         currentUser={
           currentUser
         }
+
         onLogout={
           handleLogout
         }
@@ -1311,6 +1364,7 @@ export default function App() {
             activeTab={
               activeTab
             }
+
             onSelectTab={(tab) => {
               if (
                 tab ===
@@ -1351,18 +1405,23 @@ export default function App() {
                 false
               );
             }}
+
             userRole={
               currentUser.role
             }
+
             activeScenarioTitle={
               activeScenario?.title
             }
+
             hasActiveSession={
               hasActiveSession
             }
+
             isMobileOpen={
               isMobileMenuOpen
             }
+
             onCloseMobile={() =>
               setIsMobileMenuOpen(
                 false
@@ -1404,6 +1463,10 @@ export default function App() {
             </div>
           ) : (
             <>
+              {/* ==================================================
+                  DASHBOARD
+                  ================================================== */}
+
               {activeTab ===
                 'dashboard' && (
                 <div className="p-6 sm:p-8 space-y-8">
@@ -1478,6 +1541,10 @@ export default function App() {
                 </div>
               )}
 
+              {/* ==================================================
+                  SIMULATOR SETUP
+                  ================================================== */}
+
               {activeTab ===
                 'simulator_setup' && (
                 <SimulatorSetupView
@@ -1486,11 +1553,16 @@ export default function App() {
                       'dashboard'
                     )
                   }
+
                   onStartSimulation={
                     handleStartConfiguredSimulation
                   }
                 />
               )}
+
+              {/* ==================================================
+                  LIVE CONSOLE
+                  ================================================== */}
 
               {activeTab ===
                 'live_console' && (
@@ -1542,9 +1614,7 @@ export default function App() {
                       false
                     );
 
-                    setMessages(
-                      []
-                    );
+                    setMessages([]);
 
                     setCurrentAnalysis(
                       undefined
@@ -1587,6 +1657,10 @@ export default function App() {
                 />
               )}
 
+              {/* ==================================================
+                  SCENARIOS
+                  ================================================== */}
+
               {activeTab ===
                 'scenarios' && (
                 <ScenariosView
@@ -1623,6 +1697,10 @@ export default function App() {
                 />
               )}
 
+              {/* ==================================================
+                  KNOWLEDGE BASE
+                  ================================================== */}
+
               {activeTab ===
                 'knowledge_base' &&
                 currentRole ===
@@ -1641,6 +1719,10 @@ export default function App() {
                   />
                 )}
 
+              {/* ==================================================
+                  REPLAY
+                  ================================================== */}
+
               {activeTab ===
                 'replay' && (
                 <ReplayModeView />
@@ -1649,6 +1731,10 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* ==========================================================
+          MANUAL MODE
+          ========================================================== */}
 
       <ManualModeModal
         isOpen={
@@ -1665,6 +1751,10 @@ export default function App() {
           handleAnalyzeManualMessage
         }
       />
+
+      {/* ==========================================================
+          MOBILE NAVIGATION
+          ========================================================== */}
 
       {currentRole !==
         'user' && (

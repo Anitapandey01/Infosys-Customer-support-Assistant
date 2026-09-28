@@ -146,198 +146,23 @@ async function safeFetchJson<T = any>(
 }
 
 /* ==========================================================================
-   LOCAL SIMULATOR ANALYSIS
+   MANUAL MODE ANALYSIS
    ========================================================================== */
 
 /*
- * The current backend Swagger exposes:
+ * IMPORTANT:
  *
- * POST /simulator/start
- * POST /simulator/message
+ * This function is kept only for Manual Mode.
  *
- * The simulator response contains customer state, but it does not expose
- * the old /api/analyze-turn endpoint.
+ * Simulator Mode Task 4 DOES NOT use this endpoint.
  *
- * This helper converts the actual simulator state into the existing
- * frontend MessageAnalysis shape so LiveConsoleView can continue using
- * the same UI without calling a nonexistent endpoint.
+ * Simulator Mode gets Task 4 analysis exclusively from:
+ *
+ *   POST /simulator/start
+ *   POST /simulator/message
+ *
+ * Do not use this function for the Simulator Live Analysis panel.
  */
-
-export function buildSimulatorAnalysis(params: {
-  scenario?: Scenario;
-  state?: {
-    emotion?: string;
-    frustration?: number;
-    patience?: number;
-    satisfaction?: number;
-    trust?: number;
-    escalation_intent?: number;
-  };
-  customerMessage?: string;
-  lastAgentMessage?: string;
-}): MessageAnalysis {
-  const scenarioCategory =
-    params.scenario?.category || 'Customer Support';
-
-  const frustration =
-    Number(params.state?.frustration ?? 0);
-
-  const escalationRisk =
-    Number(params.state?.escalation_intent ?? 0);
-
-  const emotion =
-    params.state?.emotion ||
-    'Neutral';
-
-  let sentiment = 'neutral';
-
-  if (frustration >= 70) {
-    sentiment = 'very_negative';
-  } else if (frustration >= 45) {
-    sentiment = 'negative';
-  } else if (frustration >= 25) {
-    sentiment = 'neutral';
-  } else {
-    sentiment = 'positive';
-  }
-
-  let escalationLevel:
-    | 'low'
-    | 'medium'
-    | 'high' = 'low';
-
-  if (escalationRisk >= 70) {
-    escalationLevel = 'high';
-  } else if (escalationRisk >= 40) {
-    escalationLevel = 'medium';
-  }
-
-  return {
-    intent:
-      scenarioCategory
-        ? `${scenarioCategory} Support`
-        : 'Customer Issue Resolution',
-
-    intentConfidence: 100,
-
-    sentiment,
-
-    sentimentConfidence: 100,
-
-    frustrationLevel: Math.round(
-      Math.min(100, Math.max(0, frustration))
-    ),
-
-    frustrationTrend:
-      frustration >= 60
-        ? 'increasing'
-        : frustration <= 25
-        ? 'decreasing'
-        : 'stable',
-
-    emotions: [emotion],
-
-    relevantKnowledge: {
-      kbId: '',
-      title: 'Simulator Knowledge Context',
-      relevantSection: '',
-      policySnippet: '',
-      source: '',
-      confidence: 0,
-      troubleshootingSteps: [],
-      isVerified: false,
-    },
-
-    escalationRisk: Math.round(
-      Math.min(100, Math.max(0, escalationRisk))
-    ),
-
-    escalationLevel,
-
-    riskReasons:
-      escalationRisk >= 70
-        ? [
-            'Customer escalation intent is currently high.',
-            'Customer frustration level is elevated.',
-          ]
-        : escalationRisk >= 40
-        ? [
-            'Customer may require careful de-escalation.',
-          ]
-        : [],
-
-    recommendedIntervention:
-      escalationRisk >= 70
-        ? 'Acknowledge the customer concern, take ownership, and provide a clear resolution path.'
-        : 'Continue using clear, empathetic and solution-focused communication.',
-
-    coachWhisper:
-      frustration >= 60
-        ? 'Acknowledge the customer frustration before explaining the next steps.'
-        : 'Maintain a clear and empathetic response.',
-
-    alertType:
-      escalationRisk >= 70
-        ? 'warning'
-        : 'info',
-
-    suggestedResponses: {
-      quick:
-        'I understand your concern. Let me check the details and help resolve this for you.',
-
-      professional:
-        'I understand your concern and apologize for the inconvenience. Let me review the details and guide you through the next steps.',
-
-      empathetic:
-        'I understand why this situation is frustrating. I will look into it and help you with the next steps.',
-
-      concise:
-        'I understand your concern. Let me check this and help resolve it.',
-
-      detailed:
-        'I understand your concern and want to make sure this is handled properly. Let me review the relevant details and explain the available resolution clearly.',
-
-      deEscalation:
-        'I understand how frustrating this situation can be. I will take ownership of the issue and work through the next steps with you.',
-    },
-
-    whyReasons: [
-      'The response should acknowledge the customer concern.',
-      'A clear resolution path helps maintain customer trust.',
-    ],
-
-    counterfactual: {
-      alternativeResponse:
-        'You will have to wait. There is nothing I can do.',
-
-      predictedRiskDrop: 0,
-
-      reasoning:
-        'A dismissive response may increase frustration and escalation risk.',
-    },
-
-    agentEvaluation: params.lastAgentMessage
-      ? {
-          tone: 'Supportive',
-          empathyScore: 0,
-          clarityScore: 0,
-          concisenessScore: 0,
-          grammarScore: 0,
-          policyComplianceScore: 0,
-
-          problemNoticed:
-            'Continue monitoring customer sentiment and escalation risk.',
-
-          coachingAdvice:
-            'Use the customer state to adapt tone and provide a clear next step.',
-        }
-      : undefined,
-  };
-}
-
-/* ==========================================================================
-   AI / COACHING API CALLS
-   ========================================================================== */
 
 export async function analyzeTurnApi(params: {
   customerMessage: string;
@@ -351,17 +176,27 @@ export async function analyzeTurnApi(params: {
       '/api/analyze-turn',
       {
         method: 'POST',
+
         headers: {
           'Content-Type': 'application/json',
         },
+
         body: JSON.stringify(params),
       }
     );
   } catch (err) {
     console.warn(
-      'Fallback analysis due to:',
+      'Manual analysis endpoint unavailable:',
       err
     );
+
+    /*
+     * Manual Mode fallback only.
+     *
+     * The required MessageAnalysis fields are included
+     * so the fallback remains compatible with the current
+     * frontend type contract.
+     */
 
     return {
       intent:
@@ -369,15 +204,39 @@ export async function analyzeTurnApi(params: {
           ? 'Billing Dispute & Reversal'
           : 'Customer Issue Resolution',
 
-      intentConfidence: 92,
+      emotion:
+        'Frustration',
 
-      sentiment: 'negative',
+      sentiment:
+        'negative',
 
-      sentimentConfidence: 86,
+      frustration_level:
+        68,
 
-      frustrationLevel: 68,
+      satisfaction_trend:
+        'Declining',
 
-      frustrationTrend: 'increasing',
+      escalation_risk:
+        'High',
+
+      confidence:
+        92,
+
+      /*
+       * Legacy Manual Mode compatibility fields.
+       */
+
+      intentConfidence:
+        92,
+
+      sentimentConfidence:
+        86,
+
+      frustrationLevel:
+        68,
+
+      frustrationTrend:
+        'increasing',
 
       emotions: [
         'Frustration',
@@ -385,7 +244,8 @@ export async function analyzeTurnApi(params: {
       ],
 
       relevantKnowledge: {
-        kbId: 'KB-102',
+        kbId:
+          'KB-102',
 
         title:
           'Duplicate Subscription Charges & Billing Disputes',
@@ -394,105 +254,152 @@ export async function analyzeTurnApi(params: {
           'Section 3.2: Duplicate Charge Reversal',
 
         policySnippet:
-          'Verify transaction timestamps and issue immediate full credit. Inform customer: Funds reappear within 3-5 business days.',
+          'Verify transaction timestamps and issue immediate full credit.',
 
         source:
           'Refund Policy → Section 3.2',
 
-        confidence: 94,
+        confidence:
+          94,
 
         troubleshootingSteps: [
           'Verify transaction timestamps in billing logs',
           'Confirm duplicate descriptor and charge amount',
-          'Authorize instant refund reversal',
-          'Clarify 3-5 business days banking turnaround',
+          'Authorize appropriate refund or reversal',
+          'Clarify the expected banking turnaround',
         ],
 
-        isVerified: true,
+        isVerified:
+          true,
       },
 
-      escalationRisk: 65,
+      escalationRisk:
+        65,
 
-      escalationLevel: 'high',
+      escalationLevel:
+        'high',
 
       riskReasons: [
-        'Customer expressed immediate financial frustration',
-        'Customer stated previous contact was delayed',
-        'High urgency tone detected',
+        'Customer expressed financial frustration',
+        'Customer requires clear resolution',
+        'High urgency language detected',
       ],
 
       recommendedIntervention:
-        'Acknowledge the customer frustration sincerely, clarify that you will handle it personally, and state the exact 3-5 business day refund policy.',
+        'Acknowledge the concern, take ownership, and provide a clear resolution path.',
 
       coachWhisper:
-        'Validate their frustration and take personal ownership before detailing the policy steps.',
+        'Validate the customer concern before explaining the next steps.',
 
-      alertType: 'warning',
+      alertType:
+        'warning',
 
       suggestedResponses: {
         quick:
-          "I'm so sorry about the duplicate charge and prior delay. I've initiated your refund right away.",
+          'I understand your concern. Let me check the details and help resolve this for you.',
 
         professional:
-          'I apologize for the duplicate charge and the delay in our earlier response. I have verified your account records and initiated an immediate reversal, which will process in 3-5 business days.',
+          'I understand your concern and apologize for the inconvenience. Let me review the details and guide you through the next steps.',
 
         empathetic:
-          "I completely understand how frustrating it is to see unexpected duplicate charges. I am on it right now—I've verified the error and authorized your full refund immediately.",
+          'I understand why this situation is frustrating. I will look into it and help you with the next steps.',
 
         concise:
-          "Apologies for the duplicate charge. I've processed your full refund, which will reflect in 3-5 business days.",
+          'I understand your concern. Let me check this and help resolve it.',
 
         detailed:
-          'Thank you for alerting us. I checked our payment gateway logs and verified the duplicate billing. I have issued a full reversal to your card, and you will receive a receipt confirmation shortly. Funds typically reappear in 3-5 business days.',
+          'I understand your concern and want to make sure this is handled properly. Let me review the relevant details and explain the available resolution clearly.',
 
         deEscalation:
-          "I am genuinely sorry for the stress and delay you experienced. You will not have to dispute anything with your bank—I've authorized your refund right now and confirmed your account is in good standing.",
+          'I understand how frustrating this situation can be. I will take ownership of the issue and work through the next steps with you.',
       },
 
       whyReasons: [
-        'Acknowledging the emotional impact can help de-escalate customer anxiety',
-        'Adheres directly to KB-102 refund reversal guidelines',
-        'Clear timeline sets realistic banking expectations',
+        'Acknowledging the customer concern can support de-escalation.',
+        'A clear resolution path helps maintain customer trust.',
       ],
 
       counterfactual: {
         alternativeResponse:
-          'You have to wait 5 business days for our billing department to review this.',
+          'You will have to wait. There is nothing I can do.',
 
-        predictedRiskDrop: -30,
+        predictedRiskDrop:
+          0,
 
         reasoning:
-          'A dismissive response would increase frustration and escalation risk.',
+          'A dismissive response may increase frustration and escalation risk.',
       },
 
-      agentEvaluation: params.lastAgentMessage
-        ? {
-            tone: 'Empathetic',
-            empathyScore: 86,
-            clarityScore: 92,
-            concisenessScore: 88,
-            grammarScore: 96,
-            policyComplianceScore: 94,
+      agentEvaluation:
+        params.lastAgentMessage
+          ? {
+              tone:
+                'Supportive',
 
-            problemNoticed:
-              'Good tone; ensure you clearly specify the 3-5 day banking window.',
+              empathyScore:
+                0,
 
-            coachingAdvice:
-              'Excellent empathy. Make sure to share the refund confirmation receipt.',
-          }
-        : undefined,
+              clarityScore:
+                0,
+
+              concisenessScore:
+                0,
+
+              grammarScore:
+                0,
+
+              policyComplianceScore:
+                0,
+
+              problemNoticed:
+                'Continue monitoring customer sentiment and escalation risk.',
+
+              coachingAdvice:
+                'Use clear, empathetic and solution-focused communication.',
+            }
+          : undefined,
     };
   }
 }
 
 /* ==========================================================================
-   REAL BACKEND CUSTOMER SIMULATOR
+   TASK 4 SIMULATOR ANALYSIS
+   ========================================================================== */
+
+/*
+ * IMPORTANT:
+ *
+ * Simulator Task 4 uses the centralized MessageAnalysis type
+ * from src/types.ts.
+ *
+ * There is intentionally NO duplicate SimulatorAnalysis interface
+ * in this file.
+ *
+ * Backend analysis_service.py is the source of truth.
+ *
+ * The frontend must NOT calculate:
+ *
+ *   - intent
+ *   - emotion
+ *   - sentiment
+ *   - frustration
+ *   - satisfaction trend
+ *   - escalation risk
+ *   - confidence
+ *
+ * The frontend only displays the values returned by the backend.
+ */
+
+/* ==========================================================================
+   SIMULATOR MESSAGE RESPONSE
    ========================================================================== */
 
 export interface SimulatorMessageResponse {
   session_id: string;
 
   customer_message: string;
+
+  analysis: MessageAnalysis;
 
   state: {
     emotion?: string;
@@ -524,13 +431,15 @@ export async function simulateCustomerTurnApi(params: {
 
       customer_message: string;
 
+      analysis?: MessageAnalysis;
+
       state: {
         emotion?: string;
-        frustration: number;
-        patience: number;
-        satisfaction: number;
-        trust: number;
-        escalation_intent: number;
+        frustration?: number;
+        patience?: number;
+        satisfaction?: number;
+        trust?: number;
+        escalation_intent?: number;
       };
 
       turn?: number;
@@ -548,9 +457,8 @@ export async function simulateCustomerTurnApi(params: {
         }),
 
         body: JSON.stringify({
-          session_id: Number(
-            params.sessionId
-          ),
+          session_id:
+            Number(params.sessionId),
 
           agent_response:
             params.agentResponse,
@@ -560,12 +468,28 @@ export async function simulateCustomerTurnApi(params: {
       'Failed to generate the next customer response.'
     );
 
+  /*
+   * Task 4 requires structured analysis for
+   * every customer message.
+   *
+   * Never fabricate analysis on the frontend.
+   */
+
+  if (!data.analysis) {
+    throw new Error(
+      'Simulator backend did not return Task 4 analysis.'
+    );
+  }
+
   return {
     session_id:
       String(data.session_id),
 
     customer_message:
       data.customer_message,
+
+    analysis:
+      data.analysis,
 
     state: {
       emotion:
@@ -609,13 +533,15 @@ export async function simulateCustomerTurnApi(params: {
 }
 
 /* ==========================================================================
-   REAL BACKEND SIMULATOR START
+   SIMULATOR START RESPONSE
    ========================================================================== */
 
 export interface SimulatorStartResponse {
   session_id: string;
 
   customer_message: string;
+
+  analysis: MessageAnalysis;
 
   state: {
     emotion: string;
@@ -627,6 +553,8 @@ export interface SimulatorStartResponse {
   };
 
   status?: string;
+
+  turn?: number;
 }
 
 /* ==========================================================================
@@ -646,18 +574,24 @@ export async function startSimulatorApi(params: {
     await safeFetchJson<{
       session_id: string | number;
 
+      conversation_id?: number;
+
       customer_message: string;
 
+      analysis?: MessageAnalysis;
+
       state: {
-        emotion: string;
-        frustration: number;
-        patience: number;
-        satisfaction: number;
-        trust: number;
-        escalation_intent: number;
+        emotion?: string;
+        frustration?: number;
+        patience?: number;
+        satisfaction?: number;
+        trust?: number;
+        escalation_intent?: number;
       };
 
       status?: string;
+
+      turn?: number;
     }>(
       '/simulator/start',
       {
@@ -667,11 +601,25 @@ export async function startSimulatorApi(params: {
           'Content-Type': 'application/json',
         }),
 
-        body: JSON.stringify(params),
+        body:
+          JSON.stringify(params),
       },
 
       'Failed to start simulator session.'
     );
+
+  /*
+   * Task 4 requires an analysis object for
+   * the opening customer message as well.
+   *
+   * Do not create a frontend fallback.
+   */
+
+  if (!data.analysis) {
+    throw new Error(
+      'Simulator backend did not return Task 4 analysis.'
+    );
+  }
 
   return {
     session_id:
@@ -680,9 +628,13 @@ export async function startSimulatorApi(params: {
     customer_message:
       data.customer_message,
 
+    analysis:
+      data.analysis,
+
     state: {
       emotion:
-        data.state?.emotion || 'Neutral',
+        data.state?.emotion ||
+        'neutral',
 
       frustration:
         Number(
@@ -712,6 +664,9 @@ export async function startSimulatorApi(params: {
 
     status:
       data.status,
+
+    turn:
+      data.turn,
   };
 }
 
@@ -723,13 +678,14 @@ export async function fetchSimulatorHistoryApi(
   sessionId: string
 ): Promise<any> {
   return await safeFetchJson(
-    `/simulator/${Number(
-      sessionId
-    )}/history`,
+    `/simulator/${Number(sessionId)}/history`,
     {
       method: 'GET',
-      headers: getAuthHeaders(),
+
+      headers:
+        getAuthHeaders(),
     },
+
     'Failed to fetch simulator history.'
   );
 }
@@ -750,10 +706,12 @@ export async function generateScenarioApi(params: {
         method: 'POST',
 
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type':
+            'application/json',
         },
 
-        body: JSON.stringify(params),
+        body:
+          JSON.stringify(params),
       }
     );
   } catch (err) {
@@ -763,25 +721,29 @@ export async function generateScenarioApi(params: {
     );
 
     return {
-      id: `SCENARIO-${Date.now()
-        .toString()
-        .slice(-4)}`,
+      id:
+        `SCENARIO-${Date.now()
+          .toString()
+          .slice(-4)}`,
 
-      title: `${params.category}: ${
-        params.prompt ||
-        'Customer Service Dispute'
-      }`,
+      title:
+        `${params.category}: ${
+          params.prompt ||
+          'Customer Service Dispute'
+        }`,
 
       category:
-        params.category as any,
+        params.category,
 
       difficulty:
         params.difficulty,
 
       customerPersona: {
-        id: `persona-${Date.now()}`,
+        id:
+          `persona-${Date.now()}`,
 
-        name: 'Jordan Miller',
+        name:
+          'Jordan Miller',
 
         avatar:
           'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
@@ -794,15 +756,20 @@ export async function generateScenarioApi(params: {
         behaviorDescription:
           'Needs urgent resolution regarding an unexpected billing or service interruption.',
 
-        baseFrustration: 75,
+        baseFrustration:
+          75,
 
-        patience: 25,
+        patience:
+          25,
 
-        trust: 30,
+        trust:
+          30,
 
-        satisfaction: 20,
+        satisfaction:
+          20,
 
-        escalationIntent: 65,
+        escalationIntent:
+          65,
       },
 
       initialProblem:
@@ -839,7 +806,8 @@ export async function generateScenarioApi(params: {
         'KB-102',
       ],
 
-      targetResolutionTurns: 4,
+      targetResolutionTurns:
+        4,
     };
   }
 }
@@ -879,10 +847,12 @@ export async function generateReportApi(params: {
         method: 'POST',
 
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type':
+            'application/json',
         },
 
-        body: JSON.stringify(params),
+        body:
+          JSON.stringify(params),
       }
     );
   } catch (err) {
@@ -893,23 +863,51 @@ export async function generateReportApi(params: {
 
     return {
       score: {
-        overall: 89,
-        intentHandling: 93,
-        knowledgeUsage: 91,
-        empathy: 87,
-        tone: 91,
-        clarity: 94,
-        resolution: 90,
-        escalationHandling: 85,
-        policyComplianceScore: 96,
+        overall:
+          89,
+
+        intentHandling:
+          93,
+
+        knowledgeUsage:
+          91,
+
+        empathy:
+          87,
+
+        tone:
+          91,
+
+        clarity:
+          94,
+
+        resolution:
+          90,
+
+        escalationHandling:
+          85,
+
+        policyComplianceScore:
+          96,
 
         resolutionQuality: {
-          problemIdentification: 95,
-          correctSolution: 92,
-          knowledgeAccuracy: 94,
-          customerSatisfaction: 88,
-          resolutionCompleteness: 90,
-          overallQuality: 92,
+          problemIdentification:
+            95,
+
+          correctSolution:
+            92,
+
+          knowledgeAccuracy:
+            94,
+
+          customerSatisfaction:
+            88,
+
+          resolutionCompleteness:
+            90,
+
+          overallQuality:
+            92,
         },
       },
 
@@ -919,13 +917,17 @@ export async function generateReportApi(params: {
       endingSentiment:
         'positive',
 
-      sentimentImprovement: 68,
+      sentimentImprovement:
+        68,
 
-      resolved: true,
+      resolved:
+        true,
 
-      escalated: false,
+      escalated:
+        false,
 
-      timelineEvents: [],
+      timelineEvents:
+        [],
 
       topStrengths: [
         'High empathy and active listening',
@@ -942,27 +944,31 @@ export async function generateReportApi(params: {
         'Advanced De-escalation Techniques',
       ],
 
-      xpEarned: 240,
+      xpEarned:
+        240,
 
       responseComparisons:
         params.messages
           .filter(
-            (m) => m.sender === 'agent'
+            (message) =>
+              message.sender === 'agent'
           )
           .slice(0, 2)
-          .map((m, idx) => ({
-            turnNumber:
-              idx + 1,
+          .map(
+            (message, index) => ({
+              turnNumber:
+                index + 1,
 
-            originalAgentText:
-              m.text,
+              originalAgentText:
+                message.text,
 
-            aiImprovedText:
-              'I completely understand why this duplicate charge is frustrating. I have verified the transaction and authorized the refund.',
+              aiImprovedText:
+                'I completely understand why this is frustrating. I have reviewed the issue and will guide you through the next step.',
 
-            improvementExplanation:
-              'The improved response validates the concern and clearly communicates ownership.',
-          })),
+              improvementExplanation:
+                'The improved response validates the concern and clearly communicates ownership.',
+            })
+          ),
     };
   }
 }
@@ -988,10 +994,12 @@ export async function counterfactualApi(params: {
         method: 'POST',
 
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type':
+            'application/json',
         },
 
-        body: JSON.stringify(params),
+        body:
+          JSON.stringify(params),
       }
     );
   } catch (err) {
@@ -1030,20 +1038,27 @@ export async function translateApi(
         method: 'POST',
 
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type':
+            'application/json',
         },
 
-        body: JSON.stringify({
-          text,
-          targetLang,
-        }),
+        body:
+          JSON.stringify({
+            text,
+            targetLang,
+          }),
       }
     );
   } catch (err) {
     return {
-      translatedText: text,
-      detectedLang: 'English',
-      intent: 'Customer Inquiry',
+      translatedText:
+        text,
+
+      detectedLang:
+        'English',
+
+      intent:
+        'Customer Inquiry',
     };
   }
 }
@@ -1077,10 +1092,11 @@ export async function loginApi(
             'application/json',
         },
 
-        body: JSON.stringify({
-          email,
-          password,
-        }),
+        body:
+          JSON.stringify({
+            email,
+            password,
+          }),
       },
 
       'Invalid email or password.'
@@ -1123,6 +1139,7 @@ export async function fetchCurrentUserApi(): Promise<UserAccount | null> {
         '/auth/me',
         {
           method: 'GET',
+
           headers:
             getAuthHeaders(),
         },
@@ -1274,13 +1291,13 @@ export async function uploadPoliciesApi(
     new FormData();
 
   for (
-    let i = 0;
-    i < files.length;
-    i++
+    let fileIndex = 0;
+    fileIndex < files.length;
+    fileIndex++
   ) {
     formData.append(
       'files',
-      files[i]
+      files[fileIndex]
     );
   }
 

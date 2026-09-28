@@ -73,8 +73,22 @@ def initial_state(
         A dictionary with integer values [0, 100] for frustration, trust,
         patience, satisfaction, and escalation_intent.
     """
-    severity = max(1, min(5, issue_severity))
-    patience_input = max(1, min(5, patience_level))
+    severity = max(1, min(5, int(issue_severity)))
+
+    # The frontend exposes patience as 0-100 because that is what the
+    # customer sees.  Older backend tests/configurations used 1-5.
+    # Accept both formats so the API and existing simulator tests remain
+    # compatible.
+    raw_patience = int(patience_level)
+    if 0 <= raw_patience <= 100:
+        if raw_patience <= 5:
+            patience_input = raw_patience
+            if patience_input == 0:
+                patience_input = 1
+        else:
+            patience_input = max(1, min(5, round(raw_patience / 20)))
+    else:
+        patience_input = max(1, min(5, raw_patience))
 
     base_frustration = 20 + (severity - 1) * 15
     base_escalation = 10 + (severity - 1) * 12
@@ -82,7 +96,20 @@ def initial_state(
     base_trust = 60 - (severity * 5)
     base_satisfaction = 40 - (severity * 5)
 
-    emotion_key = initial_emotion.strip().lower()
+    emotion_key = str(initial_emotion or "neutral").strip().lower()
+
+    # Task 4 emotion values are different from simulator persona values.
+    # All Task 4 emotions are valid starting states.  Neutral/worried/satisfied
+    # simply use the neutral baseline unless a stronger simulator emotion applies.
+    supported_emotions = {
+        "calm", "neutral", "confused", "worried",
+        "frustrated", "angry", "satisfied", "impatient", "polite"
+    }
+    if emotion_key not in supported_emotions:
+        raise ValueError(
+            f"Invalid initial_emotion '{initial_emotion}'. Must be one of: "
+            + ", ".join(sorted(supported_emotions))
+        )
     if "angry" in emotion_key:
         base_frustration += 25
         base_escalation += 25

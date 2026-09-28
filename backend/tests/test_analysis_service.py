@@ -132,11 +132,11 @@ def test_declining_satisfaction():
     history = [
         {
             "sender_type": "Customer",
-            "message_text": "I would like to know my refund status."
+            "message_text": "I would like to know my refund status.",
         },
         {
             "sender_type": "Support Agent",
-            "message_text": "Let me check that for you."
+            "message_text": "Let me check that for you.",
         },
     ]
 
@@ -152,11 +152,11 @@ def test_improving_satisfaction():
     history = [
         {
             "sender_type": "Customer",
-            "message_text": "I am frustrated because this is still pending."
+            "message_text": "I am frustrated because this is still pending.",
         },
         {
             "sender_type": "Support Agent",
-            "message_text": "I have processed the refund."
+            "message_text": "I have processed the refund.",
         },
     ]
 
@@ -211,6 +211,121 @@ def test_full_analysis_structure():
     }
 
     assert expected_keys.issubset(result.keys())
-
     assert 0 <= result["frustration_level"] <= 10
     assert 0 <= result["confidence"] <= 1
+
+
+def test_delivery_to_payment_topic_change():
+    history = [
+        {
+            "sender_type": "Customer",
+            "message_text": "My package is delayed and has not arrived.",
+        },
+        {
+            "sender_type": "Support Agent",
+            "message_text": "I am checking the shipment.",
+        },
+    ]
+
+    result = analyze_customer_message(
+        "My card payment was declined twice.",
+        history,
+    )
+
+    assert result["intent"] == "payment_issue"
+
+
+def test_delivery_to_account_topic_change():
+    history = [
+        {
+            "sender_type": "Customer",
+            "message_text": "My package is delayed.",
+        },
+        {
+            "sender_type": "Support Agent",
+            "message_text": "I will check the tracking.",
+        },
+    ]
+
+    result = analyze_customer_message(
+        "I cannot log into my account.",
+        history,
+    )
+
+    assert result["intent"] == "account_issue"
+
+
+def test_delivery_to_return_topic_change():
+    history = [
+        {
+            "sender_type": "Customer",
+            "message_text": "My package was delayed.",
+        },
+        {
+            "sender_type": "Support Agent",
+            "message_text": "It should arrive soon.",
+        },
+    ]
+
+    result = analyze_customer_message(
+        "The item arrived damaged and I want to return it.",
+        history,
+    )
+
+    assert result["intent"] == "return_exchange"
+
+
+def test_delivery_remedy_preserves_delivery_intent():
+    history = [
+        {
+            "sender_type": "Customer",
+            "message_text": "My package has not arrived.",
+        },
+        {
+            "sender_type": "Support Agent",
+            "message_text": "I am checking the delivery status.",
+        },
+    ]
+
+    result = analyze_customer_message(
+        "Ship a replacement or give me a credit.",
+        history,
+    )
+
+    assert result["intent"] == "delivery_issue"
+
+
+def test_mixed_delivery_damage_return_prefers_return_exchange():
+    result = analyze_customer_message(
+        "My package was late, but it arrived damaged. I want to return it."
+    )
+
+    assert result["intent"] == "return_exchange"
+
+
+def test_substring_does_not_create_delivery_intent():
+    result = analyze_customer_message(
+        "This is a plate issue."
+    )
+
+    assert result["intent"] == "general_inquiry"
+
+
+def test_generic_follow_up_preserves_established_payment_intent():
+    history = [
+        {
+            "sender_type": "Customer",
+            "message_text": "My payment failed when I tried to pay.",
+        },
+        {
+            "sender_type": "Support Agent",
+            "message_text": "I will investigate the payment.",
+        },
+    ]
+
+    result = analyze_customer_message(
+        "I already explained this and I need a real solution.",
+        history,
+    )
+
+    assert result["intent"] == "payment_issue"

@@ -1,316 +1,489 @@
-export type InteractionMode = 'simulator' | 'manual' | 'replay';
-export type UserRole = 'admin' | 'trainer' | 'employee';
-export type PolicyAccessLevel = 'PUBLIC' | 'EMPLOYEE' | 'TRAINER' | 'ADMIN';
-export type CoachingLevel = 'beginner' | 'intermediate' | 'advanced' | 'assessment';
-export type DifficultyLevel = 'easy' | 'medium' | 'hard' | 'expert';
+export type InteractionMode =
+  | 'manual'
+  | 'simulator'
+  | 'replay';
 
-export interface UserAccount {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  status: 'active' | 'inactive';
-  createdAt: string;
-  lastLogin?: string;
-}
+export type UserRole =
+  | 'admin'
+  | 'employee'
+  | 'user';
 
-export interface PolicyDocument {
-  id: string;
-  filename: string;
-  originalName: string;
-  category: 'HR' | 'IT' | 'Finance' | 'General' | 'Training' | 'Security' | 'Returns' | 'Refunds' | 'Shipping' | 'Warranty' | 'Privacy' | 'Billing' | 'Customer Service';
-  accessLevel: PolicyAccessLevel;
-  mimeType: string;
-  size: number;
-  uploadedBy: string;
-  uploadedAt: string;
-  status: 'indexed' | 'processing' | 'failed' | 'inactive';
-  version: number;
-  isActive: boolean;
-  chunkCount: number;
-  summary?: string;
-  extractedTextSnippet?: string;
-  processingError?: string;
-}
+export type CoachingLevel =
+  | 'beginner'
+  | 'intermediate'
+  | 'advanced'
+  | 'expert';
 
-export interface PolicyStats {
-  total: number;
-  active: number;
-  processing: number;
-  failed: number;
-}
+export type DifficultyLevel =
+  | 'easy'
+  | 'medium'
+  | 'hard'
+  | 'expert';
 
-export interface PolicyChunk {
-  id: string;
-  documentId: string;
-  documentTitle: string;
-  category: string;
-  accessLevel: PolicyAccessLevel;
-  chunkText: string;
-  chunkIndex: number;
-  sectionTitle?: string;
-  pageNumber?: number;
-}
+/* ==========================================================================
+   ANALYSIS TYPES
+   ========================================================================== */
 
-export type SentimentType = 'positive' | 'neutral' | 'negative' | 'very_negative';
-export type EmotionType = 'Frustration' | 'Anger' | 'Confusion' | 'Anxiety' | 'Satisfaction' | 'Disappointment' | 'Urgency' | 'Relief';
-export type EscalationLevel = 'low' | 'moderate' | 'high' | 'critical';
+export type SentimentType =
+  | 'Positive'
+  | 'Neutral'
+  | 'Negative'
+  | 'positive'
+  | 'neutral'
+  | 'negative';
 
-export interface CustomerPersona {
-  id: string;
-  name: string;
-  avatar: string;
-  type: 'Calm' | 'Confused' | 'Angry' | 'Impatient' | 'Professional' | 'First-time customer' | 'Technically knowledgeable' | 'Highly frustrated';
-  behaviorDescription: string;
-  baseFrustration: number; // 0-100
-  patience: number; // 0-100
-  trust: number; // 0-100
-  satisfaction: number; // 0-100
-  escalationIntent: number; // 0-100
-}
+export type SatisfactionTrend =
+  | 'Improving'
+  | 'Declining'
+  | 'Stable'
+  | 'improving'
+  | 'declining'
+  | 'stable';
 
-export interface Scenario {
-  id: string;
-  title: string;
-  category: 'Billing' | 'Account' | 'Product' | 'Delivery' | 'Subscription' | 'Technical' | 'Security';
-  difficulty: DifficultyLevel;
-  customerPersona: CustomerPersona;
-  initialProblem: string;
-  customerOpeningMessage: string;
-  expectedResolution: string;
-  escalationTrigger: string;
-  successCriteria: string[];
-  sessionObjectives: string;
-  relevantKbIds: string[];
-  targetResolutionTurns: number;
+export type EscalationRisk =
+  | 'Low'
+  | 'Medium'
+  | 'High'
+  | 'Critical'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'critical';
+
+/* ==========================================================================
+   MESSAGE ANALYSIS
+   ========================================================================== */
+
+export interface KnowledgeRecommendation {
+  rank: number;
+  chunk_id?: string;
+  document_name?: string;
+  document_type?: string;
+  version?: number | string | null;
+  page_number?: number | string | null;
+  relevance_score?: number | null;
+  content: string;
+  title?: string;
+  source?: string;
+  kb_id?: string;
+  section?: string;
+  [key: string]: unknown;
 }
 
 export interface MessageAnalysis {
   intent: string;
-  intentConfidence: number; // 0-100
+
+  emotion: string;
+
   sentiment: SentimentType;
-  sentimentConfidence: number;
-  frustrationLevel: number; // 0-100
-  frustrationTrend: 'increasing' | 'decreasing' | 'stable';
-  emotions: EmotionType[];
-  
-  // RAG Knowledge Citation
+
+  frustration_level: number;
+
+  satisfaction_trend: SatisfactionTrend;
+
+  escalation_risk: EscalationRisk;
+
+  confidence: number;
+
+  /* ------------------------------------------------------------------------
+     Legacy / compatibility fields
+     ------------------------------------------------------------------------ */
+
+  intentConfidence?: number;
+
+  sentimentConfidence?: number;
+
+  frustrationLevel?: number;
+
+  frustrationTrend?: string;
+
+  emotions?: string[];
+
+  /* ------------------------------------------------------------------------
+     Knowledge Base information
+     ------------------------------------------------------------------------ */
+
   relevantKnowledge?: {
-    kbId: string;
-    title: string;
-    relevantSection: string;
-    policySnippet: string;
-    source: string;
-    confidence: number;
-    troubleshootingSteps: string[];
-    isVerified: boolean;
+    kbId?: string;
+
+    title?: string;
+
+    relevantSection?: string;
+
+    policySnippet?: string;
+
+    source?: string;
+
+    [key: string]: unknown;
   };
 
-  // Escalation Assessment
-  escalationRisk: number; // 0-100
-  escalationLevel: EscalationLevel;
-  riskReasons: string[];
-  recommendedIntervention: string;
+  knowledge_recommendations?: KnowledgeRecommendation[];
 
-  // Real-time Coaching
+  knowledge_message?: string;
+
+  recommended_response?: string | null;
+  recommendedResponse?: string | null;
+  coaching_response?: string | null;
+  coachingResponse?: string | null;
+
+  suggestedResponses?: Record<string, string>;
+
+  escalationRisk?: number;
+  escalationLevel?: string;
+  escalation_probability?: number;
+  escalationProbability?: number;
+  riskReasons?: string[];
+  recommendedIntervention?: string;
   coachWhisper?: string;
-  alertType?: 'info' | 'warning' | 'critical';
-  
-  // Suggested responses across styles
-  suggestedResponses: {
-    quick: string;
-    professional: string;
-    empathetic: string;
-    concise: string;
-    detailed: string;
-    deEscalation: string;
-  };
+  alertType?: string;
 
-  // Why this response? reasoning
-  whyReasons: string[];
+  /* ------------------------------------------------------------------------
+     Additional backend analysis fields
+     ------------------------------------------------------------------------ */
 
-  // Counterfactual preview
-  counterfactual?: {
-    alternativeResponse: string;
-    predictedRiskDrop: number;
-    reasoning: string;
-  };
-
-  // Evaluation of the Agent's previous response (if turn > 1)
-  agentEvaluation?: {
-    tone: 'Polite' | 'Empathetic' | 'Professional' | 'Robotic' | 'Defensive' | 'Dismissive';
-    empathyScore: number;
-    clarityScore: number;
-    concisenessScore: number;
-    grammarScore: number;
-    policyComplianceScore: number;
-    problemNoticed?: string;
-    coachingAdvice?: string;
-  };
+  [key: string]: unknown;
 }
+
+/* ==========================================================================
+   SIMULATOR ANALYSIS
+   ==========================================================================
+
+   Simulator Mode uses the exact same analysis contract as MessageAnalysis.
+
+   IMPORTANT:
+   Do NOT create a second independent SimulatorAnalysis interface.
+
+   This prevents type conflicts between:
+     - Manual Mode analysis
+     - Simulator Mode analysis
+     - Task 4 backend analysis
+
+   The backend remains the source of truth for the actual values.
+   ========================================================================== */
+
+export type SimulatorAnalysis = MessageAnalysis;
+
+/* ==========================================================================
+   CHAT MESSAGE
+   ========================================================================== */
 
 export interface ChatMessage {
   id: string;
-  sender: 'customer' | 'agent' | 'system';
+
+  sender:
+    | 'customer'
+    | 'agent'
+    | 'system';
+
   text: string;
-  originalText?: string; // For translated or masked messages
+
   timestamp: string;
+
   analysis?: MessageAnalysis;
+
   customerState?: {
+    emotion?: string;
+
     frustration: number;
-    trust: number;
+
     patience: number;
+
     satisfaction: number;
+
+    trust: number;
+
     escalationIntent: number;
+
+    [key: string]: unknown;
   };
+
+  [key: string]: unknown;
 }
+
+/* ==========================================================================
+   CUSTOMER PERSONA
+   ========================================================================== */
+
+export interface CustomerPersona {
+  id: string;
+
+  name: string;
+
+  type: string;
+
+  avatar: string;
+
+  behaviorDescription: string;
+
+  baseFrustration: number;
+
+  patience: number;
+
+  [key: string]: unknown;
+}
+
+/* ==========================================================================
+   SCENARIO
+   ========================================================================== */
+
+export interface Scenario {
+  id: string;
+
+  title: string;
+
+  category: string;
+
+  difficulty: DifficultyLevel;
+
+  customerPersona: CustomerPersona;
+
+  initialProblem: string;
+
+  customerOpeningMessage: string;
+
+  successCriteria: string[];
+
+  escalationTrigger: string;
+
+  [key: string]: unknown;
+}
+
+/* ==========================================================================
+   KNOWLEDGE DOCUMENT
+   ========================================================================== */
 
 export interface KnowledgeDocument {
   id: string;
+
   title: string;
-  category: 'Policies' | 'Billing' | 'Shipping' | 'Technical' | 'Product' | 'Security';
+
+  category: string;
+
   updatedAt: string;
+
   chunkCount: number;
+
   embeddingCount: number;
-  status: 'indexed' | 'updating' | 'warning';
-  summary: string;
-  content: string;
+
+  status: string;
+
   citationsCount: number;
-  conflictWarning?: string;
+
+  summary: string;
+
+  content: string;
+
+  [key: string]: unknown;
 }
 
-export interface PerformanceScore {
-  overall: number; // 0-100
-  intentHandling: number;
-  knowledgeUsage: number;
-  empathy: number;
-  tone: number;
-  clarity: number;
-  resolution: number;
-  escalationHandling: number;
-  policyCompliance: number;
-  
-  resolutionQuality: {
-    problemIdentification: number;
-    correctSolution: number;
-    knowledgeAccuracy: number;
-    customerSatisfaction: number;
-    resolutionCompleteness: number;
-    overallQuality: number;
-  };
-}
-
-export interface CoachingTimelineEvent {
-  turn: number;
-  timestamp: string;
-  type: 'sentiment_shift' | 'kb_retrieved' | 'risk_spike' | 'empathy_bonus' | 'policy_check' | 'resolution_milestone';
-  description: string;
-  severity: 'normal' | 'positive' | 'warning' | 'critical';
-}
-
-export interface SessionRecord {
-  id: string;
-  agentName: string;
-  agentId: string;
-  scenarioId: string;
-  scenarioTitle: string;
-  mode: InteractionMode;
-  coachingLevel: CoachingLevel;
-  difficulty: DifficultyLevel;
-  startTime: string;
-  endTime?: string;
-  durationSeconds: number;
-  status: 'active' | 'completed' | 'abandoned';
-  messages: ChatMessage[];
-  score?: PerformanceScore;
-  startingSentiment: SentimentType;
-  endingSentiment: SentimentType;
-  sentimentImprovement: number; // percentage
-  resolved: boolean;
-  escalated: boolean;
-  timelineEvents: CoachingTimelineEvent[];
-  topWeaknesses: string[];
-  topStrengths: string[];
-  recommendedTrainings: string[];
-  xpEarned: number;
-  responseComparisons: {
-    turnNumber: number;
-    originalAgentText: string;
-    aiImprovedText: string;
-    improvementExplanation: string;
-  }[];
-}
+/* ==========================================================================
+   AGENT PROFILE
+   ========================================================================== */
 
 export interface AgentProfile {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  avatar: string;
-  level: number;
-  xp: number;
-  xpToNextLevel: number;
-  streakDays: number;
-  totalSessions: number;
-  averageScore: number;
-  resolutionRate: number;
-  avgCsat: number;
-  escalationRate: number;
-  avgResponseQuality: number;
-  skills: {
-    communication: number;
-    empathy: number;
-    knowledge: number;
-    problemSolving: number;
-    deEscalation: number;
-    policyCompliance: number;
-  };
-  badges: Badge[];
-  recentSessions: SessionRecord[];
+  id?: string;
+
+  name?: string;
+
+  email?: string;
+
+  avatar?: string;
+
+  role?: UserRole;
+
+  [key: string]: unknown;
 }
 
-export interface Badge {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  category: 'resolution' | 'knowledge' | 'empathy' | 'streak' | 'mastery';
-  unlockedAt?: string;
-  progress?: number;
-  maxProgress?: number;
+/* ==========================================================================
+   USER ACCOUNT
+   ========================================================================== */
+
+export interface UserAccount {
+  id?: string | number;
+
+  email: string;
+
+  name?: string;
+
+  full_name?: string;
+
+  username?: string;
+
+  role: UserRole | string;
+
+  is_active?: boolean;
+
+  [key: string]: unknown;
 }
+
+/* ==========================================================================
+   PERFORMANCE SCORE
+   ========================================================================== */
+
+export interface PerformanceScore {
+  score?: number;
+
+  overallScore?: number;
+
+  rating?: number;
+
+  [key: string]: unknown;
+}
+
+/* ==========================================================================
+   COACHING TIMELINE EVENT
+   ========================================================================== */
+
+export interface CoachingTimelineEvent {
+  id?: string;
+
+  timestamp?: string;
+
+  type?: string;
+
+  title?: string;
+
+  description?: string;
+
+  [key: string]: unknown;
+}
+
+/* ==========================================================================
+   LEADERBOARD ENTRY
+   ========================================================================== */
 
 export interface LeaderboardEntry {
-  rank: number;
-  agentId: string;
-  agentName: string;
-  avatar: string;
-  score: number;
-  sessionsCompleted: number;
-  resolutionRate: number;
-  escalationRate: number;
-  streakDays: number;
-  tier: 'Diamond' | 'Platinum' | 'Gold' | 'Silver';
+  id?: string;
+
+  name?: string;
+
+  score?: number;
+
+  rank?: number;
+
+  [key: string]: unknown;
 }
+
+/* ==========================================================================
+   AUDIT LOG ENTRY
+   ========================================================================== */
 
 export interface AuditLogEntry {
-  id: string;
-  timestamp: string;
-  userName: string;
-  userEmail?: string;
-  userRole?: string;
-  action: string;
-  category: 'auth' | 'session' | 'knowledge' | 'scenario' | 'report' | 'system' | 'policy' | 'user';
-  details: string;
-  resource?: string;
+  id?: string;
+
+  timestamp?: string;
+
+  action?: string;
+
+  user?: string;
+
+  details?: string;
+
+  [key: string]: unknown;
 }
 
+/* ==========================================================================
+   SESSION RECORD
+   ========================================================================== */
+
+export interface SessionRecord {
+  id?: string;
+
+  sessionId?: string;
+
+  scenarioId?: string;
+
+  startedAt?: string;
+
+  endedAt?: string;
+
+  status?: string;
+
+  [key: string]: unknown;
+}
+
+/* ==========================================================================
+   TRAINING PLAN
+   ========================================================================== */
+
 export interface TrainingPlanWeek {
-  weekNumber: number;
-  title: string;
-  focusArea: string;
-  assignedScenarios: string[];
-  completedScenarios: string[];
-  status: 'current' | 'upcoming' | 'completed';
-  targetScore: number;
+  week?: number;
+
+  title?: string;
+
+  description?: string;
+
+  goals?: string[];
+
+  [key: string]: unknown;
+}
+
+/* ==========================================================================
+   POLICY ACCESS
+   ========================================================================== */
+
+export type PolicyAccessLevel =
+  | 'ADMIN'
+  | 'EMPLOYEE'
+  | 'USER'
+  | 'PUBLIC';
+
+/* ==========================================================================
+   POLICY DOCUMENT
+   ========================================================================== */
+
+export interface PolicyDocument {
+  id: string;
+
+  title?: string;
+
+  name?: string;
+
+  description?: string;
+
+  category?: string;
+
+  accessLevel?: PolicyAccessLevel | string;
+
+  isActive?: boolean;
+
+  status?: string;
+
+  fileName?: string;
+
+  filePath?: string;
+
+  uploadedAt?: string;
+
+  updatedAt?: string;
+
+  createdAt?: string;
+
+  fileSize?: number;
+
+  chunkCount?: number;
+
+  embeddingCount?: number;
+
+  [key: string]: unknown;
+}
+
+/* ==========================================================================
+   POLICY STATISTICS
+   ========================================================================== */
+
+export interface PolicyStats {
+  total?: number;
+
+  active?: number;
+
+  inactive?: number;
+
+  indexed?: number;
+
+  processing?: number;
+
+  failed?: number;
+
+  [key: string]: unknown;
 }
