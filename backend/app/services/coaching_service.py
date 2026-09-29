@@ -26,6 +26,7 @@ SUPPORTED_TONES = {
     "Reassuring",
 }
 
+
 SUPPORTED_RATINGS = {
     "Good",
     "Needs Improvement",
@@ -101,7 +102,7 @@ def _get_coaching_model() -> str:
     return (
         os.getenv("GEMINI_COACHING_MODEL")
         or os.getenv("GEMINI_MODEL")
-        or "gemini-3.5-flash"
+        or "gemini-3.5-flash-lite"
     )
 
 
@@ -183,6 +184,14 @@ Requirements:
 9. Do not claim that a refund or other action has already been
    completed unless the conversation explicitly confirms it.
 10. The response should sound like a real support agent, not an AI.
+11. Do not copy or repeat a previous support-agent response.
+12. If a previous agent response appears in the conversation history,
+    generate a meaningfully different response that addresses the
+    customer's latest message.
+13. The response must be based primarily on the CURRENT CUSTOMER
+    MESSAGE and the provided customer analysis.
+14. Do not respond to a previous customer message when a newer
+    customer message is available.
 
 Evaluate the response on:
 - tone

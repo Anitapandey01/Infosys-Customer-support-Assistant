@@ -35,8 +35,13 @@ if not api_key:
 client = genai.Client(api_key=api_key)
 
 
-PRIMARY_MODEL = "gemini-3.5-flash"
-FALLBACK_MODEL = "gemini-3.5-flash-lite"
+# Primary model first, followed by independent fallbacks.
+PRIMARY_MODEL = "gemini-3.5-flash-lite"
+
+FALLBACK_MODELS = [
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+]
 
 
 # --------------------------------------------------
@@ -45,50 +50,86 @@ FALLBACK_MODEL = "gemini-3.5-flash-lite"
 
 def generate_with_gemini(prompt: str):
 
-    # Try primary model
-    for attempt in range(2):
+    models_to_try = [
+        PRIMARY_MODEL,
+        *FALLBACK_MODELS,
+    ]
 
-        try:
+    for model_index, model_name in enumerate(models_to_try):
 
-            response = client.models.generate_content(
-                model=PRIMARY_MODEL,
-                contents=prompt
-            )
+        max_attempts = 2 if model_index == 0 else 1
 
-            return response.text
+        for attempt in range(max_attempts):
 
-        except Exception as e:
+            try:
 
-            error_message = str(e)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
 
-            print(
-                f"Primary Gemini model failed "
-                f"(attempt {attempt + 1}/2): {error_message}"
-            )
+                response_text = getattr(
+                    response,
+                    "text",
+                    None,
+                )
 
-            if (
-                "503" in error_message
-                or "UNAVAILABLE" in error_message
-            ):
+                if response_text:
+                    return response_text
 
-                if attempt == 0:
+                print(
+                    f"Gemini model returned an empty response: "
+                    f"{model_name}"
+                )
+
+                break
+
+            except Exception as exc:
+
+                error_message = str(exc)
+
+                print(
+                    f"Gemini model failed "
+                    f"({model_name}, attempt "
+                    f"{attempt + 1}/{max_attempts}): "
+                    f"{error_message}"
+                )
+
+                is_temporary_error = (
+                    "503" in error_message
+                    or "UNAVAILABLE" in error_message
+                    or "500" in error_message
+                    or "INTERNAL" in error_message
+                )
+
+                is_quota_error = (
+                    "429" in error_message
+                    or "RESOURCE_EXHAUSTED" in error_message
+                    or "quota" in error_message.lower()
+                )
+
+                if (
+                    is_temporary_error
+                    and attempt < max_attempts - 1
+                ):
                     time.sleep(3)
                     continue
 
-            break
+                if is_quota_error:
+                    print(
+                        f"Quota/rate limit reached for "
+                        f"{model_name}. "
+                        f"Trying the next Gemini model."
+                    )
+
+                break
 
 
-    # Fallback model
-    print(
-        f"Trying fallback Gemini model: {FALLBACK_MODEL}"
+    raise RuntimeError(
+        "All configured Gemini models failed. "
+        "Please check Gemini API quota, billing, "
+        "model availability, and API configuration."
     )
-
-    response = client.models.generate_content(
-        model=FALLBACK_MODEL,
-        contents=prompt
-    )
-
-    return response.text
 
 
 # --------------------------------------------------

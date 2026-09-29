@@ -191,52 +191,25 @@ export async function analyzeTurnApi(params: {
     );
 
     /*
-     * Manual Mode fallback only.
+     * This fallback exists only to preserve Manual Mode.
      *
-     * The required MessageAnalysis fields are included
-     * so the fallback remains compatible with the current
-     * frontend type contract.
+     * It must never be used by the Simulator Task 4 flow.
      */
-
     return {
       intent:
         params.scenario?.category === 'Billing'
           ? 'Billing Dispute & Reversal'
           : 'Customer Issue Resolution',
 
-      emotion:
-        'Frustration',
+      intentConfidence: 92,
 
-      sentiment:
-        'negative',
+      sentiment: 'negative',
 
-      frustration_level:
-        68,
+      sentimentConfidence: 86,
 
-      satisfaction_trend:
-        'Declining',
+      frustrationLevel: 68,
 
-      escalation_risk:
-        'High',
-
-      confidence:
-        92,
-
-      /*
-       * Legacy Manual Mode compatibility fields.
-       */
-
-      intentConfidence:
-        92,
-
-      sentimentConfidence:
-        86,
-
-      frustrationLevel:
-        68,
-
-      frustrationTrend:
-        'increasing',
+      frustrationTrend: 'increasing',
 
       emotions: [
         'Frustration',
@@ -244,8 +217,7 @@ export async function analyzeTurnApi(params: {
       ],
 
       relevantKnowledge: {
-        kbId:
-          'KB-102',
+        kbId: 'KB-102',
 
         title:
           'Duplicate Subscription Charges & Billing Disputes',
@@ -259,8 +231,7 @@ export async function analyzeTurnApi(params: {
         source:
           'Refund Policy → Section 3.2',
 
-        confidence:
-          94,
+        confidence: 94,
 
         troubleshootingSteps: [
           'Verify transaction timestamps in billing logs',
@@ -269,15 +240,12 @@ export async function analyzeTurnApi(params: {
           'Clarify the expected banking turnaround',
         ],
 
-        isVerified:
-          true,
+        isVerified: true,
       },
 
-      escalationRisk:
-        65,
+      escalationRisk: 65,
 
-      escalationLevel:
-        'high',
+      escalationLevel: 'high',
 
       riskReasons: [
         'Customer expressed financial frustration',
@@ -291,8 +259,7 @@ export async function analyzeTurnApi(params: {
       coachWhisper:
         'Validate the customer concern before explaining the next steps.',
 
-      alertType:
-        'warning',
+      alertType: 'warning',
 
       suggestedResponses: {
         quick:
@@ -323,8 +290,7 @@ export async function analyzeTurnApi(params: {
         alternativeResponse:
           'You will have to wait. There is nothing I can do.',
 
-        predictedRiskDrop:
-          0,
+        predictedRiskDrop: 0,
 
         reasoning:
           'A dismissive response may increase frustration and escalation risk.',
@@ -333,23 +299,12 @@ export async function analyzeTurnApi(params: {
       agentEvaluation:
         params.lastAgentMessage
           ? {
-              tone:
-                'Supportive',
-
-              empathyScore:
-                0,
-
-              clarityScore:
-                0,
-
-              concisenessScore:
-                0,
-
-              grammarScore:
-                0,
-
-              policyComplianceScore:
-                0,
+              tone: 'Supportive',
+              empathyScore: 0,
+              clarityScore: 0,
+              concisenessScore: 0,
+              grammarScore: 0,
+              policyComplianceScore: 0,
 
               problemNoticed:
                 'Continue monitoring customer sentiment and escalation risk.',
@@ -367,18 +322,11 @@ export async function analyzeTurnApi(params: {
    ========================================================================== */
 
 /*
- * IMPORTANT:
+ * This is the ONLY analysis contract used by Simulator Mode.
  *
- * Simulator Task 4 uses the centralized MessageAnalysis type
- * from src/types.ts.
- *
- * There is intentionally NO duplicate SimulatorAnalysis interface
- * in this file.
- *
- * Backend analysis_service.py is the source of truth.
+ * The backend analysis_service.py is the source of truth.
  *
  * The frontend must NOT calculate:
- *
  *   - intent
  *   - emotion
  *   - sentiment
@@ -390,6 +338,47 @@ export async function analyzeTurnApi(params: {
  * The frontend only displays the values returned by the backend.
  */
 
+export interface SimulatorAnalysis {
+  intent: string;
+
+  emotion: string;
+
+  sentiment:
+    | 'Positive'
+    | 'Neutral'
+    | 'Negative';
+
+  frustration_level: number;
+
+  satisfaction_trend:
+    | 'Improving'
+    | 'Declining'
+    | 'Stable';
+
+  escalation_risk:
+    | 'Low'
+    | 'Medium'
+    | 'High'
+    | 'Critical';
+
+  confidence: number;
+}
+
+export interface EscalationRiskMetadata {
+  risk_score: number;
+  risk_level:
+    | 'Low'
+    | 'Medium'
+    | 'High'
+    | 'Critical';
+  risk_threshold: number;
+  critical_threshold: number;
+  reasons: string[];
+  recommended_action: string;
+  alert: boolean;
+  critical_alert: boolean;
+}
+
 /* ==========================================================================
    SIMULATOR MESSAGE RESPONSE
    ========================================================================== */
@@ -399,7 +388,10 @@ export interface SimulatorMessageResponse {
 
   customer_message: string;
 
-  analysis: MessageAnalysis;
+  analysis: SimulatorAnalysis;
+
+  // Task 6 backend escalation-risk payload.
+  escalation?: EscalationRiskMetadata;
 
   state: {
     emotion?: string;
@@ -431,7 +423,10 @@ export async function simulateCustomerTurnApi(params: {
 
       customer_message: string;
 
-      analysis?: MessageAnalysis;
+      analysis?: SimulatorAnalysis;
+
+      // Task 6 is returned by the backend as a separate top-level object.
+      escalation?: EscalationRiskMetadata;
 
       state: {
         emotion?: string;
@@ -457,8 +452,7 @@ export async function simulateCustomerTurnApi(params: {
         }),
 
         body: JSON.stringify({
-          session_id:
-            Number(params.sessionId),
+          session_id: Number(params.sessionId),
 
           agent_response:
             params.agentResponse,
@@ -469,12 +463,11 @@ export async function simulateCustomerTurnApi(params: {
     );
 
   /*
-   * Task 4 requires structured analysis for
-   * every customer message.
+   * Task 4 requires structured analysis for every
+   * customer message.
    *
    * Never fabricate analysis on the frontend.
    */
-
   if (!data.analysis) {
     throw new Error(
       'Simulator backend did not return Task 4 analysis.'
@@ -490,6 +483,9 @@ export async function simulateCustomerTurnApi(params: {
 
     analysis:
       data.analysis,
+
+    escalation:
+      data.escalation,
 
     state: {
       emotion:
@@ -541,7 +537,10 @@ export interface SimulatorStartResponse {
 
   customer_message: string;
 
-  analysis: MessageAnalysis;
+  analysis: SimulatorAnalysis;
+
+  // Task 6 backend escalation-risk payload.
+  escalation?: EscalationRiskMetadata;
 
   state: {
     emotion: string;
@@ -578,7 +577,10 @@ export async function startSimulatorApi(params: {
 
       customer_message: string;
 
-      analysis?: MessageAnalysis;
+      analysis?: SimulatorAnalysis;
+
+      // Task 6 is returned by the backend as a separate top-level object.
+      escalation?: EscalationRiskMetadata;
 
       state: {
         emotion?: string;
@@ -601,20 +603,18 @@ export async function startSimulatorApi(params: {
           'Content-Type': 'application/json',
         }),
 
-        body:
-          JSON.stringify(params),
+        body: JSON.stringify(params),
       },
 
       'Failed to start simulator session.'
     );
 
   /*
-   * Task 4 requires an analysis object for
-   * the opening customer message as well.
+   * Task 4 requires an analysis object for the
+   * opening customer message as well.
    *
    * Do not create a frontend fallback.
    */
-
   if (!data.analysis) {
     throw new Error(
       'Simulator backend did not return Task 4 analysis.'
@@ -631,10 +631,12 @@ export async function startSimulatorApi(params: {
     analysis:
       data.analysis,
 
+    escalation:
+      data.escalation,
+
     state: {
       emotion:
-        data.state?.emotion ||
-        'neutral',
+        data.state?.emotion || 'neutral',
 
       frustration:
         Number(
@@ -733,7 +735,7 @@ export async function generateScenarioApi(params: {
         }`,
 
       category:
-        params.category,
+        params.category as any,
 
       difficulty:
         params.difficulty,
@@ -756,20 +758,15 @@ export async function generateScenarioApi(params: {
         behaviorDescription:
           'Needs urgent resolution regarding an unexpected billing or service interruption.',
 
-        baseFrustration:
-          75,
+        baseFrustration: 75,
 
-        patience:
-          25,
+        patience: 25,
 
-        trust:
-          30,
+        trust: 30,
 
-        satisfaction:
-          20,
+        satisfaction: 20,
 
-        escalationIntent:
-          65,
+        escalationIntent: 65,
       },
 
       initialProblem:
@@ -806,8 +803,7 @@ export async function generateScenarioApi(params: {
         'KB-102',
       ],
 
-      targetResolutionTurns:
-        4,
+      targetResolutionTurns: 4,
     };
   }
 }
@@ -863,51 +859,23 @@ export async function generateReportApi(params: {
 
     return {
       score: {
-        overall:
-          89,
-
-        intentHandling:
-          93,
-
-        knowledgeUsage:
-          91,
-
-        empathy:
-          87,
-
-        tone:
-          91,
-
-        clarity:
-          94,
-
-        resolution:
-          90,
-
-        escalationHandling:
-          85,
-
-        policyComplianceScore:
-          96,
+        overall: 89,
+        intentHandling: 93,
+        knowledgeUsage: 91,
+        empathy: 87,
+        tone: 91,
+        clarity: 94,
+        resolution: 90,
+        escalationHandling: 85,
+        policyComplianceScore: 96,
 
         resolutionQuality: {
-          problemIdentification:
-            95,
-
-          correctSolution:
-            92,
-
-          knowledgeAccuracy:
-            94,
-
-          customerSatisfaction:
-            88,
-
-          resolutionCompleteness:
-            90,
-
-          overallQuality:
-            92,
+          problemIdentification: 95,
+          correctSolution: 92,
+          knowledgeAccuracy: 94,
+          customerSatisfaction: 88,
+          resolutionCompleteness: 90,
+          overallQuality: 92,
         },
       },
 
@@ -917,17 +885,13 @@ export async function generateReportApi(params: {
       endingSentiment:
         'positive',
 
-      sentimentImprovement:
-        68,
+      sentimentImprovement: 68,
 
-      resolved:
-        true,
+      resolved: true,
 
-      escalated:
-        false,
+      escalated: false,
 
-      timelineEvents:
-        [],
+      timelineEvents: [],
 
       topStrengths: [
         'High empathy and active listening',
@@ -944,23 +908,22 @@ export async function generateReportApi(params: {
         'Advanced De-escalation Techniques',
       ],
 
-      xpEarned:
-        240,
+      xpEarned: 240,
 
       responseComparisons:
         params.messages
           .filter(
-            (message) =>
-              message.sender === 'agent'
+            (m) =>
+              m.sender === 'agent'
           )
           .slice(0, 2)
           .map(
-            (message, index) => ({
+            (m, idx) => ({
               turnNumber:
-                index + 1,
+                idx + 1,
 
               originalAgentText:
-                message.text,
+                m.text,
 
               aiImprovedText:
                 'I completely understand why this is frustrating. I have reviewed the issue and will guide you through the next step.',
@@ -1291,13 +1254,13 @@ export async function uploadPoliciesApi(
     new FormData();
 
   for (
-    let fileIndex = 0;
-    fileIndex < files.length;
-    fileIndex++
+    let i = 0;
+    i < files.length;
+    i++
   ) {
     formData.append(
       'files',
-      files[fileIndex]
+      files[i]
     );
   }
 

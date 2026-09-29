@@ -4,56 +4,68 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.services.analysis_service import analyze_customer_message
+from app.services.coaching_service import generate_coaching
+from app.services.knowledge_recommendation_service import (
+    recommend_knowledge,
+)
+from app.services.escalation_service import (
+    calculate_escalation_risk,
+)
 
 
 router = APIRouter(
     prefix="/support",
-    tags=["Live Support"]
+    tags=["Live Support"],
 )
+
+
+# ============================================================================
+# REQUEST / RESPONSE MODELS
+# ============================================================================
 
 
 class SupportRequest(BaseModel):
     issue_type: str = Field(
         ...,
         description="Type of issue reported by the user.",
-        examples=["Technical Issue"]
+        examples=["Technical Issue"],
     )
 
     message: str = Field(
         ...,
         min_length=1,
         description="Description of the user's issue.",
-        examples=["I am having trouble using the application."]
+        examples=["I am having trouble using the application."],
     )
 
 
 class SupportResponse(BaseModel):
     status: str = Field(
         ...,
-        description="Status of the support request."
+        description="Status of the support request.",
     )
 
     issue_type: str = Field(
         ...,
-        description="Issue category submitted by the user."
+        description="Issue category submitted by the user.",
     )
 
     support_response: str = Field(
         ...,
-        description="Response returned by the Live Support module."
+        description="Response returned by the Live Support module.",
     )
 
 
 class AnalysisHistoryMessage(BaseModel):
     sender_type: str = Field(
         ...,
-        description="Sender type, such as Customer or Support Agent."
+        description="Sender type, such as Customer or Support Agent.",
     )
 
     message_text: str = Field(
         ...,
         min_length=1,
-        description="Previous conversation message."
+        description="Previous conversation message.",
     )
 
 
@@ -64,54 +76,61 @@ class AnalysisRequest(BaseModel):
         description="Current customer message to analyze.",
         examples=[
             "I have already explained this twice. Where is my refund?"
-        ]
+        ],
     )
 
     conversation_history: list[AnalysisHistoryMessage] = Field(
         default_factory=list,
-        description="Previous conversation messages used for contextual analysis."
+        description=(
+            "Previous conversation messages used for contextual analysis."
+        ),
     )
 
 
 class AnalysisResponse(BaseModel):
     intent: str = Field(
         ...,
-        description="Detected customer intent."
+        description="Detected customer intent.",
     )
 
     emotion: str = Field(
         ...,
-        description="Detected customer emotional state."
+        description="Detected customer emotional state.",
     )
 
     sentiment: str = Field(
         ...,
-        description="Detected sentiment: Positive, Neutral, or Negative."
+        description="Detected sentiment: Positive, Neutral, or Negative.",
     )
 
     frustration_level: int = Field(
         ...,
         ge=0,
         le=10,
-        description="Customer frustration level from 0 to 10."
+        description="Customer frustration level from 0 to 10.",
     )
 
     satisfaction_trend: str = Field(
         ...,
-        description="Customer satisfaction trend."
+        description="Customer satisfaction trend.",
     )
 
     escalation_risk: str = Field(
         ...,
-        description="Customer escalation risk."
+        description="Customer escalation risk.",
     )
 
     confidence: float = Field(
         ...,
         ge=0,
         le=1,
-        description="Classification confidence from 0 to 1."
+        description="Classification confidence from 0 to 1.",
     )
+
+
+# ============================================================================
+# LIVE SUPPORT
+# ============================================================================
 
 
 @router.post(
@@ -127,11 +146,8 @@ Submit a support request and receive an immediate response.
 - Document Upload
 - Coaching Help
 - Other
-
-The Live Support module provides immediate assistance
-for common user problems.
 """,
-    response_description="Support response returned successfully."
+    response_description="Support response returned successfully.",
 )
 def live_support(request: SupportRequest):
 
@@ -168,8 +184,25 @@ def live_support(request: SupportRequest):
     return {
         "status": "success",
         "issue_type": request.issue_type,
-        "support_response": response
+        "support_response": response,
     }
+
+
+# ============================================================================
+# LIVE SUPPORT ANALYSIS
+# ============================================================================
+#
+# IMPORTANT:
+# Manual Mode's /api/analyze-turn endpoint is NOT defined here.
+#
+# Manual Mode is handled separately by:
+#     app/api/manual.py
+#
+# This file only owns:
+#     /support/
+#     /support/analyze
+#
+# ============================================================================
 
 
 @router.post(
@@ -179,23 +212,11 @@ def live_support(request: SupportRequest):
     description="""
 Analyze a customer message using the Task 4 Intent and Sentiment
 Analysis Agent.
-
-The analysis includes:
-
-- Customer intent
-- Emotional state
-- Sentiment
-- Frustration level
-- Satisfaction trend
-- Escalation risk
-- Classification confidence
-
-Previous customer messages can be supplied through
-`conversation_history` so the analysis can use conversation context.
 """,
-    response_description="Customer message analysis returned successfully."
+    response_description="Customer message analysis returned successfully.",
 )
 def analyze_support_message(request: AnalysisRequest):
+
     conversation_history: list[dict[str, Any]] = [
         {
             "sender_type": item.sender_type,

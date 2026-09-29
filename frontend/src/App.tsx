@@ -297,7 +297,8 @@ export default function App() {
    * making it compatible with the ChatMessage type.
    */
   const normalizeSimulatorAnalysis = (
-    analysis: SimulatorAnalysis
+    analysis: SimulatorAnalysis,
+    escalation?: unknown
   ): MessageAnalysis => {
     /*
      * IMPORTANT:
@@ -313,8 +314,76 @@ export default function App() {
      */
     const backendAnalysis = analysis as MessageAnalysis;
 
+    const analysisRecord =
+      analysis && typeof analysis === 'object'
+        ? (analysis as Record<string, unknown>)
+        : {};
+
+    // Task 6 may be returned either as the simulator response's
+    // top-level `escalation` object or nested inside `analysis`.
+    // Accept both shapes so the UI never silently converts a real
+    // backend score into 0.
+    const backendEscalationSource =
+      escalation && typeof escalation === 'object'
+        ? escalation
+        : analysisRecord.escalation;
+
+    const backendEscalation =
+      backendEscalationSource &&
+      typeof backendEscalationSource === 'object'
+        ? (backendEscalationSource as Record<string, unknown>)
+        : null;
+
     return {
       ...backendAnalysis,
+
+      // ========================================================
+      // TASK 6 - ESCALATION RISK METADATA
+      // ========================================================
+      // The simulator response keeps Task 6 in a separate
+      // `escalation` object. Flatten only these display fields
+      // into the analysis object so the existing LiveConsole UI
+      // can consume them without changing the Task 4 structure.
+      escalation_risk_score:
+        backendEscalation &&
+        backendEscalation.risk_score !== undefined &&
+        backendEscalation.risk_score !== null
+          ? Number(backendEscalation.risk_score)
+          : undefined,
+
+      escalation_risk_threshold:
+        backendEscalation &&
+        backendEscalation.risk_threshold !== undefined &&
+        backendEscalation.risk_threshold !== null
+          ? Number(backendEscalation.risk_threshold)
+          : 7,
+
+      critical_threshold:
+        backendEscalation &&
+        backendEscalation.critical_threshold !== undefined &&
+        backendEscalation.critical_threshold !== null
+          ? Number(backendEscalation.critical_threshold)
+          : 9,
+
+      escalation_reasons:
+        backendEscalation && Array.isArray(backendEscalation.reasons)
+          ? backendEscalation.reasons.filter(
+              (reason): reason is string =>
+                typeof reason === 'string'
+            )
+          : [],
+
+      escalation_recommended_action:
+        String(
+          backendEscalation?.recommended_action ??
+            ''
+        ),
+
+      escalation_alert:
+        Boolean(backendEscalation?.alert),
+
+      escalation_critical_alert:
+        Boolean(backendEscalation?.critical_alert),
 
       intent:
         backendAnalysis.intent ?? 'Unknown',
@@ -593,7 +662,11 @@ export default function App() {
            */
           analysis:
             normalizeSimulatorAnalysis(
-              result.analysis
+              result.analysis,
+              (result as { escalation?: unknown })
+                .escalation ??
+                (result.analysis as unknown as { escalation?: unknown })
+                  .escalation
             ),
 
           customerState: {
@@ -687,7 +760,9 @@ export default function App() {
 
         setCurrentAnalysis(
           normalizeSimulatorAnalysis(
-            result.analysis
+            result.analysis,
+            (result as { escalation?: unknown })
+              .escalation
           )
         );
 
@@ -845,7 +920,9 @@ export default function App() {
          */
         analysis:
           normalizeSimulatorAnalysis(
-            simResult.analysis
+            simResult.analysis,
+            (simResult as { escalation?: unknown })
+              .escalation
           ),
 
         customerState: {
@@ -908,7 +985,11 @@ export default function App() {
 
       setCurrentAnalysis(
         normalizeSimulatorAnalysis(
-          simResult.analysis
+          simResult.analysis,
+          (simResult as { escalation?: unknown })
+            .escalation ??
+            (simResult.analysis as unknown as { escalation?: unknown })
+              .escalation
         )
       );
 

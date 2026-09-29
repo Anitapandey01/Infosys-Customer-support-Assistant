@@ -1003,9 +1003,1013 @@ def detect_intent(
     ):
         return established_intent
 
-    # --------------------------------------------------------
-    # Generic continuation signals.
-    # --------------------------------------------------------
+
+import json
+import os
+import re
+from typing import Any
+
+
+try:
+    from google import genai
+except ImportError:
+    genai = None
+
+
+# ============================================================
+# TASK 4 - SUPPORTED VALUES
+# ============================================================
+
+SUPPORTED_INTENTS = {
+    "refund_status",
+    "cancellation",
+    "delivery_issue",
+    "payment_issue",
+    "account_issue",
+    "complaint",
+    "return_exchange",
+    "general_inquiry",
+}
+
+SUPPORTED_EMOTIONS = {
+    "happy",
+    "neutral",
+    "confused",
+    "worried",
+    "frustrated",
+    "angry",
+    "satisfied",
+}
+
+SUPPORTED_SENTIMENTS = {
+    "Positive",
+    "Neutral",
+    "Negative",
+}
+
+SUPPORTED_SATISFACTION_TRENDS = {
+    "Improving",
+    "Declining",
+    "Stable",
+}
+
+# IMPORTANT:
+# Critical is required for Task 5 / real-time escalation UI.
+SUPPORTED_ESCALATION_RISKS = {
+    "Low",
+    "Medium",
+    "High",
+    "Critical",
+}
+
+
+# ============================================================
+# TASK 4 - INTENT KEYWORDS
+# ============================================================
+
+INTENT_KEYWORDS = {
+    "refund_status": [
+        "refund",
+        "money back",
+        "moneyback",
+        "reimbursement",
+        "refunded",
+        "refund status",
+        "refund pending",
+        "refund not received",
+    ],
+
+    "cancellation": [
+        "cancel",
+        "cancellation",
+        "terminate subscription",
+        "stop subscription",
+        "cancel my order",
+        "cancel order",
+        "turn off auto-renewal",
+        "turn off auto renewal",
+        "stop auto-renewal",
+        "stop auto renewal",
+        "auto renewal",
+        "auto-renew",
+    ],
+
+    "delivery_issue": [
+        "delivery",
+        "delivered",
+        "delivery date",
+        "late",
+        "delay",
+        "delayed",
+        "shipment",
+        "shipping",
+        "tracking",
+        "tracking status",
+        "tracking hasn't updated",
+        "tracking has not updated",
+        "package",
+        "parcel",
+        "order hasn't arrived",
+        "order has not arrived",
+        "not arrived",
+        "not delivered",
+        "lost package",
+        "where is my package",
+        "where is my order",
+        "guaranteed delivery",
+    ],
+
+    "payment_issue": [
+        "payment",
+        "paid",
+        "pay",
+        "payment failed",
+        "payment failure",
+        "charged twice",
+        "double charged",
+        "charged",
+        "charge",
+        "debit",
+        "transaction",
+        "card",
+        "upi",
+    ],
+
+    "account_issue": [
+        "login",
+        "log in",
+        "sign in",
+        "password",
+        "profile",
+        "email address",
+        "verification",
+        "otp",
+        "locked out",
+        "cannot log in",
+        "can't log in",
+        "unable to log in",
+        "reset my password",
+        "forgot my password",
+    ],
+
+    "complaint": [
+        "complaint",
+        "file a complaint",
+        "make a complaint",
+        "complain",
+        "terrible service",
+        "worst service",
+        "poor service",
+        "poor support",
+        "bad service",
+        "unacceptable service",
+        "service is unacceptable",
+    ],
+
+    "return_exchange": [
+        "return",
+        "return this",
+        "return the item",
+        "return the product",
+        "exchange",
+        "exchange this",
+        "exchange the item",
+        "exchange the product",
+        "wrong item",
+        "wrong product",
+        "damaged item",
+        "damaged product",
+        "item is damaged",
+        "product is damaged",
+        "defective",
+        "defective item",
+        "defective product",
+        "broken item",
+        "broken product",
+        "size exchange",
+    ],
+
+    "general_inquiry": [
+        "how do i",
+        "can i",
+        "what is",
+        "where can i",
+        "when will",
+        "is it possible",
+        "tell me",
+        "information",
+        "question",
+        "help",
+    ],
+}
+
+
+# ============================================================
+# PRIMARY ISSUE SIGNALS
+# ============================================================
+
+PRIMARY_INTENT_SIGNALS = {
+    "refund_status": [
+        "refund",
+        "money back",
+        "moneyback",
+        "reimbursement",
+        "refund status",
+        "refund pending",
+        "refund not received",
+        "refund hasn't arrived",
+        "refund has not arrived",
+    ],
+
+    "cancellation": [
+        "cancel my subscription",
+        "cancel the subscription",
+        "cancel subscription",
+        "cancel my order",
+        "cancel the order",
+        "i want to cancel",
+        "i need to cancel",
+        "cancellation",
+        "terminate subscription",
+        "stop subscription",
+        "turn off auto-renewal",
+        "turn off auto renewal",
+        "stop auto-renewal",
+        "stop auto renewal",
+        "auto renewal",
+        "auto-renew",
+    ],
+
+    "delivery_issue": [
+        "delivery",
+        "delivery date",
+        "late delivery",
+        "delivery is late",
+        "delivery was late",
+        "delivery is delayed",
+        "delivery was delayed",
+        "delayed delivery",
+        "shipment",
+        "shipping",
+        "tracking",
+        "tracking status",
+        "tracking hasn't updated",
+        "tracking has not updated",
+        "package",
+        "parcel",
+        "order hasn't arrived",
+        "order has not arrived",
+        "package hasn't arrived",
+        "package has not arrived",
+        "parcel hasn't arrived",
+        "parcel has not arrived",
+        "not arrived",
+        "not delivered",
+        "lost package",
+        "lost parcel",
+        "where is my package",
+        "where is my order",
+        "guaranteed delivery",
+        "delivery is overdue",
+        "order is overdue",
+    ],
+
+    "payment_issue": [
+        "payment failed",
+        "payment failure",
+        "payment didn't go through",
+        "payment did not go through",
+        "payment was declined",
+        "payment declined",
+        "charged twice",
+        "double charged",
+        "charged me twice",
+        "duplicate charge",
+        "duplicate payment",
+        "wrong charge",
+        "incorrect charge",
+        "unexpected charge",
+        "payment issue",
+        "payment problem",
+        "transaction failed",
+        "transaction declined",
+    ],
+
+    "account_issue": [
+        "cannot log in",
+        "can't log in",
+        "unable to log in",
+        "cannot login",
+        "can't login",
+        "unable to login",
+        "log into my account",
+        "login to my account",
+        "sign into my account",
+        "sign in to my account",
+        "forgot my password",
+        "reset my password",
+        "password reset",
+        "account is locked",
+        "locked out of my account",
+        "otp is not working",
+        "verification code is not working",
+        "cannot access my account",
+        "can't access my account",
+    ],
+
+    "complaint": [
+        "i want to file a complaint",
+        "i want to make a complaint",
+        "i need to file a complaint",
+        "i need to make a complaint",
+        "file a complaint",
+        "make a complaint",
+        "official complaint",
+        "complain about",
+        "terrible service",
+        "worst service",
+        "poor service",
+        "poor support",
+        "bad service",
+        "service is unacceptable",
+    ],
+
+    "return_exchange": [
+        "i want to return",
+        "i need to return",
+        "i want to exchange",
+        "i need to exchange",
+        "return this item",
+        "return the item",
+        "return this product",
+        "return the product",
+        "exchange this item",
+        "exchange the item",
+        "exchange this product",
+        "exchange the product",
+        "wrong item",
+        "wrong product",
+        "damaged item",
+        "damaged product",
+        "item is damaged",
+        "product is damaged",
+        "item arrived damaged",
+        "product arrived damaged",
+        "defective item",
+        "defective product",
+        "item is defective",
+        "product is defective",
+        "broken item",
+        "broken product",
+        "item is broken",
+        "product is broken",
+        "size exchange",
+    ],
+}
+
+
+# ============================================================
+# REMEDY / ACTION SIGNALS
+# ============================================================
+
+REMEDY_SIGNALS = [
+    "replacement",
+    "replace",
+    "send me another",
+    "send another one",
+    "ship a replacement",
+    "give me a credit",
+    "credit",
+    "compensation",
+    "refund me",
+    "manager",
+    "supervisor",
+    "escalate",
+    "escalation",
+]
+
+
+# ============================================================
+# EMOTION KEYWORDS
+# ============================================================
+
+EMOTION_KEYWORDS = {
+    "angry": [
+        "angry",
+        "furious",
+        "ridiculous",
+        "unacceptable",
+        "outrageous",
+        "worst",
+        "hate",
+        "fix this now",
+        "right now",
+        "manager",
+        "supervisor",
+        "sick of",
+        "are you serious",
+        "seriously",
+    ],
+
+    "frustrated": [
+        "frustrated",
+        "frustrating",
+        "fed up",
+        "tired of",
+        "sick of",
+        "again",
+        "still",
+        "already told",
+        "already explained",
+        "how many times",
+        "waste of time",
+        "taking too long",
+        "taking way too long",
+        "taking longer",
+        "taking much longer",
+        "brush-off",
+        "brush off",
+        "runaround",
+        "platitudes",
+        "vague answer",
+        "vague answers",
+        "not an answer",
+        "not a real answer",
+        "real solution",
+        "right now",
+    ],
+
+    "worried": [
+        "worried",
+        "concerned",
+        "concern",
+        "afraid",
+        "scared",
+        "anxious",
+        "hope",
+        "what if",
+        "i'm concerned",
+        "i am concerned",
+    ],
+
+    "confused": [
+        "confused",
+        "don't understand",
+        "do not understand",
+        "not sure",
+        "unclear",
+        "what does that mean",
+        "how is that possible",
+        "which one",
+        "i'm confused",
+        "i am confused",
+    ],
+
+    "happy": [
+        "happy",
+        "great",
+        "awesome",
+        "excellent",
+        "wonderful",
+        "glad",
+        "perfect",
+        "amazing",
+    ],
+
+    "satisfied": [
+        "satisfied",
+        "resolved",
+        "thank you",
+        "thanks",
+        "that helps",
+        "problem solved",
+        "all good",
+    ],
+}
+
+
+# ============================================================
+# SENTIMENT WORDS
+# ============================================================
+
+POSITIVE_WORDS = {
+    "good",
+    "great",
+    "excellent",
+    "happy",
+    "perfect",
+    "thanks",
+    "thank",
+    "helpful",
+    "resolved",
+    "satisfied",
+    "awesome",
+    "wonderful",
+    "amazing",
+    "glad",
+}
+
+
+NEGATIVE_WORDS = {
+    "bad",
+    "poor",
+    "angry",
+    "frustrated",
+    "frustrating",
+    "worst",
+    "terrible",
+    "unacceptable",
+    "disappointed",
+    "disappointing",
+    "annoyed",
+    "annoying",
+    "hate",
+    "problem",
+    "issue",
+    "failed",
+    "failure",
+    "late",
+    "delay",
+    "delayed",
+    "wrong",
+    "broken",
+    "ridiculous",
+    "sick",
+    "brush-off",
+    "brush",
+    "runaround",
+    "vague",
+    "overdue",
+    "refusing",
+    "refused",
+    "unable",
+}
+
+
+# ============================================================
+# ESCALATION PHRASES
+# ============================================================
+
+ESCALATION_PHRASES = [
+    "manager",
+    "supervisor",
+    "escalate",
+    "escalation",
+    "legal action",
+    "lawyer",
+    "consumer court",
+    "chargeback",
+    "report you",
+    "report this",
+    "negative review",
+    "social media",
+    "never use",
+    "close my account",
+    "file a dispute",
+    "file dispute",
+    "dispute this charge",
+    "dispute the charge",
+    "dispute with my bank",
+    "contact my bank",
+    "contact the bank",
+    "financial institution",
+    "formal dispute",
+    "formal complaint",
+]
+
+
+# ============================================================
+# CRITICAL ESCALATION PHRASES
+# ============================================================
+
+CRITICAL_ESCALATION_PHRASES = [
+    "legal action",
+    "lawyer",
+    "consumer court",
+    "chargeback",
+    "file a dispute",
+    "file dispute",
+    "dispute this charge",
+    "dispute the charge",
+    "dispute with my bank",
+    "contact my bank",
+    "contact the bank",
+    "financial institution",
+    "formal dispute",
+    "formal complaint",
+    "report you",
+    "report this",
+    "take legal action",
+    "sue",
+    "sue you",
+]
+
+
+# ============================================================
+# BASIC HELPERS
+# ============================================================
+
+def _normalize_text(text: str) -> str:
+    if not text:
+        return ""
+
+    text = str(text).lower().strip()
+    text = re.sub(r"\s+", " ", text)
+
+    return text
+
+
+def _clamp(
+    value: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    return max(
+        minimum,
+        min(maximum, value),
+    )
+
+
+def _keyword_matches(
+    text: str,
+    keywords: list[str],
+) -> int:
+
+    normalized = _normalize_text(text)
+
+    if not normalized:
+        return 0
+
+    matches = 0
+
+    for keyword in keywords:
+        normalized_keyword = _normalize_text(keyword)
+
+        if not normalized_keyword:
+            continue
+
+        pattern = rf"(?<!\w){re.escape(normalized_keyword)}(?!\w)"
+
+        if re.search(pattern, normalized):
+            matches += 1
+
+    return matches
+
+
+def _customer_history(
+    conversation_history: list[dict[str, Any]] | None,
+) -> list[str]:
+
+    if not conversation_history:
+        return []
+
+    messages = []
+
+    for item in conversation_history:
+
+        if not isinstance(item, dict):
+            continue
+
+        sender = str(
+            item.get("sender_type")
+            or item.get("sender")
+            or ""
+        ).lower()
+
+        if sender in {
+            "customer",
+            "user",
+            "customer_message",
+        }:
+
+            message = (
+                item.get("message_text")
+                or item.get("text")
+                or ""
+            )
+
+            if message:
+                messages.append(str(message))
+
+    return messages
+
+
+# ============================================================
+# INTENT HELPERS
+# ============================================================
+
+def _intent_scores(
+    text: str,
+) -> dict[str, int]:
+
+    normalized = _normalize_text(text)
+
+    scores = {}
+
+    for intent, keywords in INTENT_KEYWORDS.items():
+
+        score = _keyword_matches(
+            normalized,
+            keywords,
+        )
+
+        if score > 0:
+            scores[intent] = score
+
+    return scores
+
+
+def _primary_intent_scores(
+    text: str,
+) -> dict[str, int]:
+
+    normalized = _normalize_text(text)
+
+    if not normalized:
+        return {}
+
+    scores: dict[str, int] = {}
+
+    for intent, signals in PRIMARY_INTENT_SIGNALS.items():
+
+        score = _keyword_matches(
+            normalized,
+            signals,
+        )
+
+        if score > 0:
+            scores[intent] = score
+
+    explicit_intent_phrases = {
+        "refund_status": [
+            "where is my refund",
+            "when will i get my refund",
+            "my refund has not arrived",
+            "my refund hasn't arrived",
+            "i am waiting for my refund",
+            "i'm waiting for my refund",
+            "refund is still pending",
+        ],
+
+        "cancellation": [
+            "i want to cancel",
+            "i need to cancel",
+            "please cancel my order",
+            "please cancel my subscription",
+        ],
+
+        "delivery_issue": [
+            "where is my package",
+            "where is my order",
+            "my package has not arrived",
+            "my package hasn't arrived",
+            "my order has not arrived",
+            "my order hasn't arrived",
+        ],
+
+        "payment_issue": [
+            "my payment failed",
+            "my payment was declined",
+            "my card was declined",
+            "i was charged twice",
+            "i was charged twice for",
+        ],
+
+        "account_issue": [
+            "i cannot log in",
+            "i can't log in",
+            "i cannot login",
+            "i can't login",
+            "i cannot access my account",
+            "i can't access my account",
+        ],
+
+        "complaint": [
+            "i want to file a complaint",
+            "i want to make a complaint",
+            "i need to file a complaint",
+            "i need to make a complaint",
+        ],
+
+        "return_exchange": [
+            "i want to return",
+            "i need to return",
+            "i want to return it",
+            "i need to return it",
+            "i want to exchange",
+            "i need to exchange",
+            "i want to exchange it",
+            "i need to exchange it",
+            "please let me return",
+            "please let me exchange",
+        ],
+    }
+
+    for intent, phrases in explicit_intent_phrases.items():
+
+        explicit_matches = _keyword_matches(
+            normalized,
+            phrases,
+        )
+
+        if explicit_matches:
+            scores[intent] = scores.get(
+                intent,
+                0,
+            ) + (2 * explicit_matches)
+
+    return scores
+
+
+def _has_any_signal(
+    text: str,
+    signals: list[str],
+) -> bool:
+
+    normalized = _normalize_text(text)
+
+    if not normalized:
+        return False
+
+    for signal in signals:
+
+        normalized_signal = _normalize_text(signal)
+
+        if not normalized_signal:
+            continue
+
+        pattern = rf"(?<!\w){re.escape(normalized_signal)}(?!\w)"
+
+        if re.search(pattern, normalized):
+            return True
+
+    return False
+
+
+def _is_remedy_only_message(
+    text: str,
+) -> bool:
+
+    normalized = _normalize_text(text)
+
+    if not normalized:
+        return False
+
+    primary_scores = _primary_intent_scores(
+        normalized
+    )
+
+    if primary_scores:
+        return False
+
+    return _has_any_signal(
+        normalized,
+        REMEDY_SIGNALS,
+    )
+
+
+def _established_intent_from_history(
+    conversation_history: list[dict[str, Any]] | None,
+) -> str | None:
+
+    history = _customer_history(
+        conversation_history
+    )
+
+    if not history:
+        return None
+
+    priority = [
+        "refund_status",
+        "cancellation",
+        "delivery_issue",
+        "payment_issue",
+        "account_issue",
+        "complaint",
+        "return_exchange",
+        "general_inquiry",
+    ]
+
+    for previous_message in reversed(
+        history[-8:]
+    ):
+
+        primary_scores = _primary_intent_scores(
+            previous_message
+        )
+
+        if not primary_scores:
+            continue
+
+        return max(
+            primary_scores,
+            key=lambda intent: (
+                primary_scores[intent],
+                -priority.index(intent),
+            ),
+        )
+
+    return None
+
+
+# ============================================================
+# TASK 4 - INTENT
+# ============================================================
+
+def detect_intent(
+    message: str,
+    conversation_history: list[dict[str, Any]] | None = None,
+) -> str:
+
+    text = _normalize_text(message)
+
+    if not text:
+        return "general_inquiry"
+
+    primary_scores = _primary_intent_scores(text)
+
+    if (
+        "return_exchange" not in primary_scores
+        and _has_any_signal(
+            text,
+            [
+                "replacement",
+                "replace",
+                "ship a replacement",
+                "send me another",
+            ],
+        )
+    ):
+
+        condition_signals = [
+            "damaged",
+            "defective",
+            "broken",
+            "wrong item",
+            "wrong product",
+            "size",
+            "doesn't fit",
+            "does not fit",
+            "incorrect item",
+            "incorrect product",
+        ]
+
+        explicit_return_context = [
+            "return",
+            "exchange",
+            "item",
+            "product",
+            "damaged",
+            "defective",
+            "broken",
+            "wrong",
+            "size",
+        ]
+
+        if (
+            _has_any_signal(
+                text,
+                condition_signals,
+            )
+            and _has_any_signal(
+                text,
+                explicit_return_context,
+            )
+        ):
+            primary_scores["return_exchange"] = 3
+
+    if primary_scores:
+
+        priority = [
+            "refund_status",
+            "cancellation",
+            "delivery_issue",
+            "payment_issue",
+            "account_issue",
+            "complaint",
+            "return_exchange",
+            "general_inquiry",
+        ]
+
+        return max(
+            primary_scores,
+            key=lambda intent: (
+                primary_scores[intent],
+                -priority.index(intent),
+            ),
+        )
+
+    established_intent = (
+        _established_intent_from_history(
+            conversation_history
+        )
+    )
+
+    if (
+        established_intent
+        and _is_remedy_only_message(text)
+    ):
+        return established_intent
 
     generic_continuation_signals = [
         "again",
@@ -1040,11 +2044,6 @@ def detect_intent(
     ):
         return established_intent
 
-    # --------------------------------------------------------
-    # STEP 3:
-    # Normal keyword classification.
-    # --------------------------------------------------------
-
     scores = _intent_scores(text)
 
     if scores:
@@ -1060,8 +2059,6 @@ def detect_intent(
             "general_inquiry",
         ]
 
-        # Generic account terms should not dominate a
-        # meaningful support issue.
         if (
             "account_issue" in scores
             and scores["account_issue"] <= 1
@@ -1086,11 +2083,6 @@ def detect_intent(
                 -priority.index(intent),
             ),
         )
-
-    # --------------------------------------------------------
-    # STEP 4:
-    # Final context fallback.
-    # --------------------------------------------------------
 
     if established_intent:
         return established_intent
@@ -1140,8 +2132,6 @@ def detect_emotion(
             ),
         )
 
-    # Use recent context only when the current message has
-    # no explicit emotional signal.
     history = _customer_history(
         conversation_history
     )
@@ -1185,22 +2175,19 @@ def detect_sentiment(
 
     text = _normalize_text(message)
 
-    positive_count = sum(
-        1
-        for word in POSITIVE_WORDS
-        if re.search(
-            rf"(?<!\w){re.escape(word)}(?!\w)",
-            text,
-        )
+    positive_count = _keyword_matches(
+        text,
+        list(POSITIVE_WORDS),
     )
 
-    negative_count = sum(
-        1
-        for word in NEGATIVE_WORDS
-        if re.search(
-            rf"(?<!\w){re.escape(word)}(?!\w)",
-            text,
-        )
+    negative_count = _keyword_matches(
+        text,
+        list(NEGATIVE_WORDS),
+    )
+
+    escalation_count = _keyword_matches(
+        text,
+        ESCALATION_PHRASES,
     )
 
     clarification_signals = [
@@ -1219,6 +2206,9 @@ def detect_sentiment(
         signal in text
         for signal in clarification_signals
     )
+
+    if escalation_count > 0:
+        return "Negative"
 
     if negative_count > positive_count:
         return "Negative"
@@ -1265,12 +2255,12 @@ def calculate_frustration(
     )
 
     score += min(
-        negative_count * 0.8,
-        3.0,
+        negative_count * 1.0,
+        3.5,
     )
 
     # --------------------------------------------------------
-    # Explicit frustration signals
+    # Explicit frustration
     # --------------------------------------------------------
 
     frustration_words = [
@@ -1301,6 +2291,9 @@ def calculate_frustration(
         "right now",
         "are you serious",
         "seriously",
+        "unable to help",
+        "refusing to help",
+        "refusing",
     ]
 
     frustration_count = _keyword_matches(
@@ -1309,12 +2302,12 @@ def calculate_frustration(
     )
 
     score += min(
-        frustration_count * 1.25,
-        4.5,
+        frustration_count * 1.5,
+        5.0,
     )
 
     # --------------------------------------------------------
-    # Strong anger signals
+    # Strong anger
     # --------------------------------------------------------
 
     angry_words = [
@@ -1337,12 +2330,12 @@ def calculate_frustration(
     )
 
     score += min(
-        angry_count * 1.5,
-        3.0,
+        angry_count * 1.75,
+        4.0,
     )
 
     # --------------------------------------------------------
-    # Explicit escalation language
+    # Escalation
     # --------------------------------------------------------
 
     escalation_count = _keyword_matches(
@@ -1351,12 +2344,26 @@ def calculate_frustration(
     )
 
     score += min(
-        escalation_count * 1.0,
-        2.0,
+        escalation_count * 1.5,
+        4.5,
     )
 
     # --------------------------------------------------------
-    # Repetition / unresolved issue signals
+    # Critical escalation language
+    # --------------------------------------------------------
+
+    critical_count = _keyword_matches(
+        text,
+        CRITICAL_ESCALATION_PHRASES,
+    )
+
+    score += min(
+        critical_count * 2.5,
+        5.0,
+    )
+
+    # --------------------------------------------------------
+    # Repetition / unresolved signals
     # --------------------------------------------------------
 
     repeated_terms = [
@@ -1379,8 +2386,8 @@ def calculate_frustration(
     )
 
     score += min(
-        repeated_count * 0.75,
-        3.0,
+        repeated_count * 1.0,
+        3.5,
     )
 
     # --------------------------------------------------------
@@ -1391,17 +2398,18 @@ def calculate_frustration(
         conversation_history
     )
 
-    if len(history) >= 2:
-        score += 0.75
-
-    if len(history) >= 4:
-        score += 0.75
-
-    if len(history) >= 6:
-        score += 0.75
-
     historical_text = " ".join(
-        history[-6:]
+        history[-8:]
+    )
+
+    historical_escalation_count = _keyword_matches(
+        historical_text,
+        ESCALATION_PHRASES,
+    )
+
+    historical_critical_count = _keyword_matches(
+        historical_text,
+        CRITICAL_ESCALATION_PHRASES,
     )
 
     historical_frustration_count = _keyword_matches(
@@ -1419,13 +2427,56 @@ def calculate_frustration(
             "sick of",
             "brush-off",
             "runaround",
+            "unacceptable",
+            "refusing",
+            "unable to help",
         ],
+    )
+
+    # Conversation persistence matters.
+    if len(history) >= 2:
+        score += 0.75
+
+    if len(history) >= 4:
+        score += 1.0
+
+    if len(history) >= 6:
+        score += 1.25
+
+    score += min(
+        historical_escalation_count * 0.75,
+        3.0,
+    )
+
+    score += min(
+        historical_critical_count * 1.5,
+        4.0,
     )
 
     score += min(
         historical_frustration_count * 0.5,
-        2.5,
+        3.0,
     )
+
+    # --------------------------------------------------------
+    # Repeated escalation requests
+    # --------------------------------------------------------
+
+    supervisor_count = _keyword_matches(
+        historical_text,
+        [
+            "manager",
+            "supervisor",
+            "escalate",
+            "escalation",
+        ],
+    )
+
+    if supervisor_count >= 2:
+        score += 2.0
+
+    if supervisor_count >= 3:
+        score += 2.0
 
     # --------------------------------------------------------
     # Punctuation / intensity
@@ -1438,10 +2489,10 @@ def calculate_frustration(
         score += 0.75
 
     if text.count("?") >= 5:
-        score += 0.5
+        score += 0.75
 
     # --------------------------------------------------------
-    # Strong explicit phrases
+    # Strong phrases
     # --------------------------------------------------------
 
     strong_frustration_patterns = [
@@ -1454,6 +2505,13 @@ def calculate_frustration(
         "this is taking way too long",
         "just another excuse",
         "keep getting the runaround",
+        "i have already asked",
+        "i have already explained",
+        "you are not helping",
+        "you are refusing to help",
+        "i will file a dispute",
+        "i will contact my bank",
+        "i will take legal action",
     ]
 
     strong_pattern_count = _keyword_matches(
@@ -1462,9 +2520,32 @@ def calculate_frustration(
     )
 
     score += min(
-        strong_pattern_count * 2.0,
-        4.0,
+        strong_pattern_count * 2.5,
+        6.0,
     )
+
+    # --------------------------------------------------------
+    # IMPORTANT FLOOR RULES
+    #
+    # These prevent a clearly escalating conversation from
+    # suddenly dropping to 1-2 because the newest message is
+    # short.
+    # --------------------------------------------------------
+
+    if historical_critical_count >= 1:
+        score = max(score, 8.0)
+
+    elif historical_escalation_count >= 3:
+        score = max(score, 8.0)
+
+    elif supervisor_count >= 3:
+        score = max(score, 7.0)
+
+    elif historical_escalation_count >= 2:
+        score = max(score, 6.0)
+
+    elif len(history) >= 6 and historical_frustration_count >= 2:
+        score = max(score, 5.0)
 
     return int(
         _clamp(
@@ -1538,12 +2619,6 @@ def determine_satisfaction_trend(
         else 0
     )
 
-    if current_value > average_previous:
-        return "Improving"
-
-    if current_value < average_previous:
-        return "Declining"
-
     current_frustration = calculate_frustration(
         message,
         conversation_history,
@@ -1554,24 +2629,34 @@ def determine_satisfaction_trend(
         for previous in recent_history
     ]
 
-    if previous_frustrations:
+    average_frustration = (
+        sum(previous_frustrations)
+        / len(previous_frustrations)
+        if previous_frustrations
+        else 0
+    )
 
-        average_frustration = (
-            sum(previous_frustrations)
-            / len(previous_frustrations)
-        )
+    # Strong escalation / high frustration means declining
+    # satisfaction even if the latest short message is neutral.
+    if current_frustration >= 7:
+        return "Declining"
 
-        if (
-            current_frustration
-            > average_frustration + 1
-        ):
-            return "Declining"
+    if average_frustration >= 5 and (
+        current_frustration >= average_frustration - 1
+    ):
+        return "Declining"
 
-        if (
-            current_frustration
-            < average_frustration - 1
-        ):
-            return "Improving"
+    if current_value > average_previous:
+        return "Improving"
+
+    if current_value < average_previous:
+        return "Declining"
+
+    if current_frustration > average_frustration + 1:
+        return "Declining"
+
+    if current_frustration < average_frustration - 1:
+        return "Improving"
 
     return "Stable"
 
@@ -1588,48 +2673,100 @@ def detect_escalation_risk(
 
     text = _normalize_text(message)
 
-    escalation_count = _keyword_matches(
-        text,
-        ESCALATION_PHRASES,
-    )
-
-    high_risk_phrases = [
-        "legal action",
-        "lawyer",
-        "consumer court",
-        "chargeback",
-        "report you",
-    ]
-
-    has_high_risk_phrase = any(
-        phrase in text
-        for phrase in high_risk_phrases
-    )
-
     history = _customer_history(
         conversation_history
     )
 
-    historical_escalation_count = _keyword_matches(
-        " ".join(history[-6:]),
+    historical_text = " ".join(
+        history[-10:]
+    )
+
+    current_escalation_count = _keyword_matches(
+        text,
         ESCALATION_PHRASES,
     )
 
+    historical_escalation_count = _keyword_matches(
+        historical_text,
+        ESCALATION_PHRASES,
+    )
+
+    current_critical_count = _keyword_matches(
+        text,
+        CRITICAL_ESCALATION_PHRASES,
+    )
+
+    historical_critical_count = _keyword_matches(
+        historical_text,
+        CRITICAL_ESCALATION_PHRASES,
+    )
+
+    supervisor_count = _keyword_matches(
+        historical_text,
+        [
+            "manager",
+            "supervisor",
+            "escalate",
+            "escalation",
+        ],
+    )
+
+    # --------------------------------------------------------
+    # CRITICAL
+    #
+    # Explicit legal / bank-dispute / chargeback language
+    # OR severe persistent escalation.
+    # --------------------------------------------------------
+
+    if (
+        frustration_level >= 9
+        or current_critical_count >= 1
+        or historical_critical_count >= 2
+        or historical_escalation_count >= 5
+        or supervisor_count >= 4
+    ):
+        return "Critical"
+
+    # A single critical phrase in recent history is enough
+    # once frustration is already high.
     if (
         frustration_level >= 8
-        or has_high_risk_phrase
-        or escalation_count >= 2
-        or historical_escalation_count >= 2
+        and (
+            historical_critical_count >= 1
+            or historical_escalation_count >= 2
+            or supervisor_count >= 3
+        )
+    ):
+        return "Critical"
+
+    # --------------------------------------------------------
+    # HIGH
+    # --------------------------------------------------------
+
+    if (
+        frustration_level >= 7
+        or current_escalation_count >= 2
+        or historical_escalation_count >= 3
+        or supervisor_count >= 2
     ):
         return "High"
 
+    # --------------------------------------------------------
+    # MEDIUM
+    # --------------------------------------------------------
+
     if (
-        frustration_level >= 5
-        or escalation_count >= 1
+        frustration_level >= 4
+        or current_escalation_count >= 1
         or historical_escalation_count >= 1
+        or supervisor_count >= 1
         or len(history) >= 4
     ):
         return "Medium"
+
+    # --------------------------------------------------------
+    # LOW
+    # --------------------------------------------------------
 
     return "Low"
 
@@ -1753,26 +2890,31 @@ Allowed values:
 Low
 Medium
 High
+Critical
 
 7. confidence
 Number from 0 to 1.
 
-IMPORTANT INTENT RULES:
+IMPORTANT:
 
 - Identify the customer's PRIMARY SUPPORT ISSUE.
-- Use conversation context, but do not permanently lock the
-  customer to a previous intent.
-- If the customer clearly introduces a NEW primary issue,
-  change the intent.
-- If the customer is continuing the same issue, preserve the
-  established intent.
-- Generic words such as "account" do not automatically mean
-  account_issue.
-- Manager, supervisor, escalation, or legal language is an
-  escalation signal, not automatically the primary intent.
-- "replacement", "replace", "credit", or "compensation" are
-  remedies and should NOT automatically create return_exchange
-  or payment_issue.
+- Use conversation context.
+- If the customer introduces a new primary issue, change intent.
+- Manager/supervisor/escalation/legal language is an escalation
+  signal, not automatically the primary intent.
+- Replacement/replace/credit/compensation are remedies.
+- Repeated unresolved complaints increase frustration.
+- Short customer messages must NOT erase established escalation.
+- If previous messages contain repeated supervisor requests,
+  chargeback, bank dispute, legal action, consumer court, or
+  similar escalation, preserve the elevated frustration/risk.
+- Legal action, lawyer, consumer court, chargeback, bank dispute,
+  formal dispute, or reporting the company can be CRITICAL.
+- Frustration of 9-10 can be CRITICAL.
+- Frustration 7-8 with repeated escalation can be CRITICAL.
+- Polite clarification does not automatically mean satisfaction.
+- A conversation that is repeatedly unresolved should generally
+  show declining satisfaction.
 
 Examples:
 
@@ -1785,33 +2927,29 @@ Examples:
 "I was charged twice. Give me a credit."
 -> payment_issue
 
-"My package was late, but it arrived damaged. I want to
-return it."
--> return_exchange because the primary issue changed.
-
 "My order is late. I've already contacted support twice."
--> delivery_issue.
+-> delivery_issue
 
-- Repeated unresolved complaints should increase frustration.
-- "sick of this", "brush-off", "runaround", "taking way too
-  long", "not an answer", "real solution", and similar language
-  indicate significant frustration.
-- Manager/supervisor/legal/chargeback/escalation requests
-  increase escalation risk.
-- Satisfaction trend must consider the conversation history.
-- Polite clarification should not automatically mean positive
-  sentiment or satisfaction.
+"I want to speak to a supervisor."
+-> preserve the existing support intent and increase escalation risk
+
+"I will dispute this charge with my bank."
+-> preserve the existing support intent,
+   escalation_risk = Critical
+
+"I will take legal action."
+-> escalation_risk = Critical
 
 Return ONLY valid JSON.
 
 Example:
 {{
-  "intent": "delivery_issue",
+  "intent": "refund_status",
   "emotion": "frustrated",
   "sentiment": "Negative",
-  "frustration_level": 8,
+  "frustration_level": 9,
   "satisfaction_trend": "Declining",
-  "escalation_risk": "High",
+  "escalation_risk": "Critical",
   "confidence": 0.94
 }}
 """.strip()
@@ -1934,7 +3072,7 @@ def _validate_ai_analysis(
 
 
 # ============================================================
-# RECONCILE AI RESULT WITH TASK 4 RULES
+# RECONCILE AI RESULT
 # ============================================================
 
 def _reconcile_analysis(
@@ -1947,8 +3085,6 @@ def _reconcile_analysis(
 
     # --------------------------------------------------------
     # INTENT
-    # Deterministic primary-issue classification is the
-    # safety layer for Gemini semantic mistakes.
     # --------------------------------------------------------
 
     deterministic_intent = detect_intent(
@@ -1960,7 +3096,6 @@ def _reconcile_analysis(
 
     # --------------------------------------------------------
     # FRUSTRATION
-    # Deterministic score acts as a minimum safety level.
     # --------------------------------------------------------
 
     deterministic_frustration = calculate_frustration(
@@ -1994,10 +3129,12 @@ def _reconcile_analysis(
         )
     )
 
-    result["frustration_level"] = max(
+    final_frustration = max(
         ai_frustration,
         deterministic_frustration,
     )
+
+    result["frustration_level"] = final_frustration
 
     # --------------------------------------------------------
     # EMOTION
@@ -2017,6 +3154,7 @@ def _reconcile_analysis(
             "neutral",
             "confused",
             "worried",
+            "satisfied",
         }:
 
             result["emotion"] = (
@@ -2043,10 +3181,18 @@ def _reconcile_analysis(
         and result.get("sentiment") == "Negative"
     ):
 
-        result["sentiment"] = "Positive"
+        # Only allow positive override when there is no
+        # escalation evidence in the current conversation.
+        current_escalation = _keyword_matches(
+            _normalize_text(message),
+            ESCALATION_PHRASES,
+        )
+
+        if current_escalation == 0:
+            result["sentiment"] = "Positive"
 
     # --------------------------------------------------------
-    # SATISFACTION TREND
+    # SATISFACTION
     # --------------------------------------------------------
 
     result["satisfaction_trend"] = (
@@ -2058,17 +3204,45 @@ def _reconcile_analysis(
 
     # --------------------------------------------------------
     # ESCALATION RISK
+    #
+    # Deterministic rule always wins over Gemini here.
     # --------------------------------------------------------
 
-    result["escalation_risk"] = (
-        detect_escalation_risk(
-            frustration_level=result[
-                "frustration_level"
-            ],
-            message=message,
-            conversation_history=conversation_history,
+    deterministic_risk = detect_escalation_risk(
+        frustration_level=final_frustration,
+        message=message,
+        conversation_history=conversation_history,
+    )
+
+    risk_priority = {
+        "Low": 0,
+        "Medium": 1,
+        "High": 2,
+        "Critical": 3,
+    }
+
+    ai_risk = str(
+        result.get(
+            "escalation_risk",
+            "Low",
         )
     )
+
+    if (
+        risk_priority.get(
+            deterministic_risk,
+            0,
+        )
+        >= risk_priority.get(
+            ai_risk,
+            0,
+        )
+    ):
+        result["escalation_risk"] = (
+            deterministic_risk
+        )
+    else:
+        result["escalation_risk"] = ai_risk
 
     return result
 
@@ -2115,7 +3289,6 @@ def _analyze_with_gemini(
 
         response_text = response_text.strip()
 
-        # Handle accidental Markdown JSON fences.
         if response_text.startswith("```"):
 
             response_text = re.sub(

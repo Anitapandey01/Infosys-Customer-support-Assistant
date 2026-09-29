@@ -85,6 +85,10 @@ The coaching agent uses:
 - Conversation history
 - Knowledge-base recommendations
 
+The suggested response should provide the agent with
+a useful next response and should not simply repeat
+or paraphrase the customer's message.
+
 It returns a suggested response together with
 communication-quality evaluation and actionable coaching tips.
 """,
