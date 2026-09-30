@@ -21,7 +21,7 @@ import {
 export const API_BASE_URL: string = (
   (import.meta.env.VITE_API_URL as string | undefined) ||
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
-  'http://127.0.0.1:8000'
+  'http://127.0.0.1:3009'
 ).replace(/\/+$/, '');
 
 /* ==========================================================================
@@ -195,6 +195,7 @@ export async function analyzeTurnApi(params: {
      *
      * It must never be used by the Simulator Task 4 flow.
      */
+
     return {
       intent:
         params.scenario?.category === 'Billing'
@@ -296,23 +297,27 @@ export async function analyzeTurnApi(params: {
           'A dismissive response may increase frustration and escalation risk.',
       },
 
-      agentEvaluation:
-        params.lastAgentMessage
-          ? {
-              tone: 'Supportive',
-              empathyScore: 0,
-              clarityScore: 0,
-              concisenessScore: 0,
-              grammarScore: 0,
-              policyComplianceScore: 0,
+      agentEvaluation: params.lastAgentMessage
+        ? {
+            tone: 'Supportive',
 
-              problemNoticed:
-                'Continue monitoring customer sentiment and escalation risk.',
+            empathyScore: 0,
 
-              coachingAdvice:
-                'Use clear, empathetic and solution-focused communication.',
-            }
-          : undefined,
+            clarityScore: 0,
+
+            concisenessScore: 0,
+
+            grammarScore: 0,
+
+            policyComplianceScore: 0,
+
+            problemNoticed:
+              'Continue monitoring customer sentiment and escalation risk.',
+
+            coachingAdvice:
+              'Use clear, empathetic and solution-focused communication.',
+          }
+        : undefined,
     };
   }
 }
@@ -366,16 +371,23 @@ export interface SimulatorAnalysis {
 
 export interface EscalationRiskMetadata {
   risk_score: number;
+
   risk_level:
     | 'Low'
     | 'Medium'
     | 'High'
     | 'Critical';
+
   risk_threshold: number;
+
   critical_threshold: number;
+
   reasons: string[];
+
   recommended_action: string;
+
   alert: boolean;
+
   critical_alert: boolean;
 }
 
@@ -468,6 +480,7 @@ export async function simulateCustomerTurnApi(params: {
    *
    * Never fabricate analysis on the frontend.
    */
+
   if (!data.analysis) {
     throw new Error(
       'Simulator backend did not return Task 4 analysis.'
@@ -615,6 +628,7 @@ export async function startSimulatorApi(params: {
    *
    * Do not create a frontend fallback.
    */
+
   if (!data.analysis) {
     throw new Error(
       'Simulator backend did not return Task 4 analysis.'
@@ -1008,6 +1022,7 @@ export async function translateApi(
         body:
           JSON.stringify({
             text,
+
             targetLang,
           }),
       }
@@ -1029,6 +1044,59 @@ export async function translateApi(
 /* ==========================================================================
    AUTHENTICATION
    ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   REGISTER
+   -------------------------------------------------------------------------- */
+
+export async function registerApi(
+  name: string,
+  email: string,
+  password: string
+): Promise<any> {
+  if (!name.trim()) {
+    throw new Error(
+      'Name is required.'
+    );
+  }
+
+  if (!email.trim()) {
+    throw new Error(
+      'Email is required.'
+    );
+  }
+
+  if (!password) {
+    throw new Error(
+      'Password is required.'
+    );
+  }
+
+  return await safeFetchJson(
+    '/auth/register',
+    {
+      method: 'POST',
+
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+
+      body:
+        JSON.stringify({
+          name,
+          email,
+          password,
+        }),
+    },
+
+    'Registration failed.'
+  );
+}
+
+/* --------------------------------------------------------------------------
+   LOGIN
+   -------------------------------------------------------------------------- */
 
 export async function loginApi(
   email: string,
@@ -1088,6 +1156,10 @@ export async function loginApi(
   };
 }
 
+/* --------------------------------------------------------------------------
+   CURRENT USER
+   -------------------------------------------------------------------------- */
+
 export async function fetchCurrentUserApi(): Promise<UserAccount | null> {
   const token =
     getAuthToken();
@@ -1141,6 +1213,10 @@ export async function fetchCurrentUserApi(): Promise<UserAccount | null> {
     throw err;
   }
 }
+
+/* --------------------------------------------------------------------------
+   LOGOUT
+   -------------------------------------------------------------------------- */
 
 export async function logoutApi(): Promise<void> {
   clearAuthToken();
@@ -1407,6 +1483,7 @@ export async function askAssistantApi(
   history: ChatMessage[] = []
 ): Promise<{
   answer: string;
+
   sources: {
     documentTitle: string;
     sectionTitle?: string;

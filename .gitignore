@@ -12,3 +12,5 @@ dist/
 .cache/
 .DS_Store
 Thumbs.db
+backend/app.db
+backend/app.db
