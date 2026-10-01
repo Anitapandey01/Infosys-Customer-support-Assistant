@@ -12,6 +12,7 @@ import {
   UserRole,
   PolicyAccessLevel,
   AuditLogEntry,
+  CoachingResponse,
 } from '../types';
 
 /* ==========================================================================
@@ -150,18 +151,18 @@ async function safeFetchJson<T = any>(
    ========================================================================== */
 
 /*
+ * Manual Mode uses:
+ *
+ * POST /api/analyze-turn
+ *
+ * The backend is now the source of truth.
+ *
  * IMPORTANT:
- *
- * This function is kept only for Manual Mode.
- *
- * Simulator Mode Task 4 DOES NOT use this endpoint.
- *
- * Simulator Mode gets Task 4 analysis exclusively from:
- *
- *   POST /simulator/start
- *   POST /simulator/message
- *
- * Do not use this function for the Simulator Live Analysis panel.
+ * - No hardcoded analysis fallback.
+ * - Existing UI remains compatible.
+ * - Backend response fields are mapped into MessageAnalysis.
+ * - The request sent to the backend uses the exact ManualTurnRequest
+ *   field names expected by the manual endpoint.
  */
 
 export async function analyzeTurnApi(params: {
@@ -171,172 +172,217 @@ export async function analyzeTurnApi(params: {
   lastAgentMessage?: string;
   knowledgeDocs?: KnowledgeDocument[];
 }): Promise<MessageAnalysis> {
-  try {
-    return await safeFetchJson<MessageAnalysis>(
+  const conversationHistory = params.conversationHistory.map(
+    (message) => ({
+      sender_type:
+        message.sender === 'customer'
+          ? 'Customer'
+          : message.sender === 'agent'
+            ? 'Support Agent'
+            : 'System',
+
+      message_text:
+        message.text,
+    })
+  );
+
+  const backendResponse =
+    await safeFetchJson<{
+      message?: string;
+
+      analysis?: {
+        intent: string;
+        emotion: string;
+        sentiment: string;
+        frustration_level: number;
+        satisfaction_trend: string;
+        escalation_risk: string;
+        confidence: number;
+      };
+
+      coaching?: CoachingResponse;
+
+      knowledge_recommendations?: Array<Record<string, unknown>>;
+
+      knowledge_message?: string;
+
+      escalation?: {
+        risk_score?: number;
+        risk_level?: string;
+        risk_threshold?: number;
+        critical_threshold?: number;
+        reasons?: string[];
+        recommended_action?: string;
+        alert?: boolean;
+        critical_alert?: boolean;
+      };
+    }>(
       '/api/analyze-turn',
       {
         method: 'POST',
 
-        headers: {
+        headers: getAuthHeaders({
           'Content-Type': 'application/json',
-        },
+        }),
 
-        body: JSON.stringify(params),
-      }
+        body: JSON.stringify({
+          message:
+            params.customerMessage,
+
+          conversation_history:
+            conversationHistory,
+
+          /*
+           * These values are kept in the request because
+           * ManualTurnRequest can use scenario context.
+           */
+          scenario:
+            params.scenario,
+
+          last_agent_message:
+            params.lastAgentMessage || '',
+
+          knowledge_docs:
+            params.knowledgeDocs || [],
+        }),
+      },
+
+      'Failed to analyze manual support turn.'
     );
-  } catch (err) {
-    console.warn(
-      'Manual analysis endpoint unavailable:',
-      err
+
+  /*
+   * Backend response must contain the actual analysis.
+   */
+  if (!backendResponse.analysis) {
+    throw new Error(
+      'Manual analysis backend did not return an analysis object.'
     );
+  }
+
+  const analysis =
+    backendResponse.analysis;
+
+  /*
+   * Convert backend Task 4 / Task 5 / Task 6 data
+   * into the existing frontend MessageAnalysis shape.
+   *
+   * Nothing is generated or hardcoded here.
+   */
+  return {
+    intent:
+      analysis.intent,
+
+    emotion:
+      analysis.emotion,
+
+    sentiment:
+      analysis.sentiment as MessageAnalysis['sentiment'],
+
+    frustration_level:
+      Number(
+        analysis.frustration_level
+      ),
+
+    satisfaction_trend:
+      analysis.satisfaction_trend as MessageAnalysis['satisfaction_trend'],
+
+    escalation_risk:
+      analysis.escalation_risk as MessageAnalysis['escalation_risk'],
+
+    confidence:
+      Number(
+        analysis.confidence
+      ),
 
     /*
-     * This fallback exists only to preserve Manual Mode.
-     *
-     * It must never be used by the Simulator Task 4 flow.
+     * Backward-compatible frontend fields.
      */
-    return {
-      intent:
-        params.scenario?.category === 'Billing'
-          ? 'Billing Dispute & Reversal'
-          : 'Customer Issue Resolution',
+    intentConfidence:
+      Number(
+        analysis.confidence
+      ) * 100,
 
-      intentConfidence: 92,
+    sentimentConfidence:
+      Number(
+        analysis.confidence
+      ) * 100,
 
-      sentiment: 'negative',
+    frustrationLevel:
+      Number(
+        analysis.frustration_level
+      ) * 10,
 
-      sentimentConfidence: 86,
+    frustrationTrend:
+      analysis.satisfaction_trend,
 
-      frustrationLevel: 68,
+    emotions: [
+      analysis.emotion,
+    ],
 
-      frustrationTrend: 'increasing',
+    /*
+     * Preserve backend knowledge recommendations.
+     */
+    knowledge_recommendations:
+      backendResponse.knowledge_recommendations || [],
 
-      emotions: [
-        'Frustration',
-        'Urgency',
-      ],
+    knowledge_message:
+      backendResponse.knowledge_message,
 
-      relevantKnowledge: {
-        kbId: 'KB-102',
+    /*
+     * Preserve complete backend objects for existing
+     * components that may read additional fields.
+     */
+    backendAnalysis:
+      analysis,
 
-        title:
-          'Duplicate Subscription Charges & Billing Disputes',
+    coaching:
+      backendResponse.coaching,
 
-        relevantSection:
-          'Section 3.2: Duplicate Charge Reversal',
+    escalation:
+      backendResponse.escalation,
 
-        policySnippet:
-          'Verify transaction timestamps and issue immediate full credit.',
+    scenario:
+      params.scenario,
+  } as MessageAnalysis;
+}
 
-        source:
-          'Refund Policy → Section 3.2',
+/* ==========================================================================
+   TASK 6 - REAL-TIME COACHING
+   ========================================================================== */
 
-        confidence: 94,
+export async function generateCoachingApi(params: {
+  message: string;
+  intent: string;
+  emotion: string;
+  sentiment: string;
+  frustration_level: number;
+  escalation_risk: string;
+  conversation_history: Array<{
+    sender_type: string;
+    message_text: string;
+  }>;
+  knowledge_recommendations: Array<Record<string, unknown>>;
+}): Promise<CoachingResponse> {
+  return await safeFetchJson<CoachingResponse>(
+    '/coaching/suggest',
+    {
+      method: 'POST',
 
-        troubleshootingSteps: [
-          'Verify transaction timestamps in billing logs',
-          'Confirm duplicate descriptor and charge amount',
-          'Authorize appropriate refund or reversal',
-          'Clarify the expected banking turnaround',
-        ],
+      headers: getAuthHeaders({
+        'Content-Type': 'application/json',
+      }),
 
-        isVerified: true,
-      },
+      body:
+        JSON.stringify(params),
+    },
 
-      escalationRisk: 65,
-
-      escalationLevel: 'high',
-
-      riskReasons: [
-        'Customer expressed financial frustration',
-        'Customer requires clear resolution',
-        'High urgency language detected',
-      ],
-
-      recommendedIntervention:
-        'Acknowledge the concern, take ownership, and provide a clear resolution path.',
-
-      coachWhisper:
-        'Validate the customer concern before explaining the next steps.',
-
-      alertType: 'warning',
-
-      suggestedResponses: {
-        quick:
-          'I understand your concern. Let me check the details and help resolve this for you.',
-
-        professional:
-          'I understand your concern and apologize for the inconvenience. Let me review the details and guide you through the next steps.',
-
-        empathetic:
-          'I understand why this situation is frustrating. I will look into it and help you with the next steps.',
-
-        concise:
-          'I understand your concern. Let me check this and help resolve it.',
-
-        detailed:
-          'I understand your concern and want to make sure this is handled properly. Let me review the relevant details and explain the available resolution clearly.',
-
-        deEscalation:
-          'I understand how frustrating this situation can be. I will take ownership of the issue and work through the next steps with you.',
-      },
-
-      whyReasons: [
-        'Acknowledging the customer concern can support de-escalation.',
-        'A clear resolution path helps maintain customer trust.',
-      ],
-
-      counterfactual: {
-        alternativeResponse:
-          'You will have to wait. There is nothing I can do.',
-
-        predictedRiskDrop: 0,
-
-        reasoning:
-          'A dismissive response may increase frustration and escalation risk.',
-      },
-
-      agentEvaluation:
-        params.lastAgentMessage
-          ? {
-              tone: 'Supportive',
-              empathyScore: 0,
-              clarityScore: 0,
-              concisenessScore: 0,
-              grammarScore: 0,
-              policyComplianceScore: 0,
-
-              problemNoticed:
-                'Continue monitoring customer sentiment and escalation risk.',
-
-              coachingAdvice:
-                'Use clear, empathetic and solution-focused communication.',
-            }
-          : undefined,
-    };
-  }
+    'Failed to generate real-time coaching.'
+  );
 }
 
 /* ==========================================================================
    TASK 4 SIMULATOR ANALYSIS
    ========================================================================== */
-
-/*
- * This is the ONLY analysis contract used by Simulator Mode.
- *
- * The backend analysis_service.py is the source of truth.
- *
- * The frontend must NOT calculate:
- *   - intent
- *   - emotion
- *   - sentiment
- *   - frustration
- *   - satisfaction trend
- *   - escalation risk
- *   - confidence
- *
- * The frontend only displays the values returned by the backend.
- */
 
 export interface SimulatorAnalysis {
   intent: string;
@@ -366,16 +412,23 @@ export interface SimulatorAnalysis {
 
 export interface EscalationRiskMetadata {
   risk_score: number;
+
   risk_level:
     | 'Low'
     | 'Medium'
     | 'High'
     | 'Critical';
+
   risk_threshold: number;
+
   critical_threshold: number;
+
   reasons: string[];
+
   recommended_action: string;
+
   alert: boolean;
+
   critical_alert: boolean;
 }
 
@@ -390,7 +443,6 @@ export interface SimulatorMessageResponse {
 
   analysis: SimulatorAnalysis;
 
-  // Task 6 backend escalation-risk payload.
   escalation?: EscalationRiskMetadata;
 
   state: {
@@ -425,7 +477,6 @@ export async function simulateCustomerTurnApi(params: {
 
       analysis?: SimulatorAnalysis;
 
-      // Task 6 is returned by the backend as a separate top-level object.
       escalation?: EscalationRiskMetadata;
 
       state: {
@@ -451,23 +502,19 @@ export async function simulateCustomerTurnApi(params: {
           'Content-Type': 'application/json',
         }),
 
-        body: JSON.stringify({
-          session_id: Number(params.sessionId),
+        body:
+          JSON.stringify({
+            session_id:
+              Number(params.sessionId),
 
-          agent_response:
-            params.agentResponse,
-        }),
+            agent_response:
+              params.agentResponse,
+          }),
       },
 
       'Failed to generate the next customer response.'
     );
 
-  /*
-   * Task 4 requires structured analysis for every
-   * customer message.
-   *
-   * Never fabricate analysis on the frontend.
-   */
   if (!data.analysis) {
     throw new Error(
       'Simulator backend did not return Task 4 analysis.'
@@ -539,7 +586,6 @@ export interface SimulatorStartResponse {
 
   analysis: SimulatorAnalysis;
 
-  // Task 6 backend escalation-risk payload.
   escalation?: EscalationRiskMetadata;
 
   state: {
@@ -579,7 +625,6 @@ export async function startSimulatorApi(params: {
 
       analysis?: SimulatorAnalysis;
 
-      // Task 6 is returned by the backend as a separate top-level object.
       escalation?: EscalationRiskMetadata;
 
       state: {
@@ -603,18 +648,13 @@ export async function startSimulatorApi(params: {
           'Content-Type': 'application/json',
         }),
 
-        body: JSON.stringify(params),
+        body:
+          JSON.stringify(params),
       },
 
       'Failed to start simulator session.'
     );
 
-  /*
-   * Task 4 requires an analysis object for the
-   * opening customer message as well.
-   *
-   * Do not create a frontend fallback.
-   */
   if (!data.analysis) {
     throw new Error(
       'Simulator backend did not return Task 4 analysis.'
@@ -913,17 +953,17 @@ export async function generateReportApi(params: {
       responseComparisons:
         params.messages
           .filter(
-            (m) =>
-              m.sender === 'agent'
+            (message) =>
+              message.sender === 'agent'
           )
           .slice(0, 2)
           .map(
-            (m, idx) => ({
+            (message, index) => ({
               turnNumber:
-                idx + 1,
+                index + 1,
 
               originalAgentText:
-                m.text,
+                message.text,
 
               aiImprovedText:
                 'I completely understand why this is frustrating. I have reviewed the issue and will guide you through the next step.',
@@ -1254,13 +1294,13 @@ export async function uploadPoliciesApi(
     new FormData();
 
   for (
-    let i = 0;
-    i < files.length;
-    i++
+    let fileIndex = 0;
+    fileIndex < files.length;
+    fileIndex++
   ) {
     formData.append(
       'files',
-      files[i]
+      files[fileIndex]
     );
   }
 

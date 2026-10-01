@@ -70,6 +70,16 @@ export interface KnowledgeRecommendation {
   [key: string]: unknown;
 }
 
+export interface CoachingResponse {
+  suggested_response: string;
+  tone: string;
+  clarity: string;
+  empathy: string;
+  professionalism: string;
+  communication_rating: string;
+  coaching_tips: string[];
+}
+
 export interface MessageAnalysis {
   intent: string;
 

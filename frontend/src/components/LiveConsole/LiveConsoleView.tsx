@@ -1,3 +1,5 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+
 
 import {
   AlertTriangle,
@@ -21,7 +23,10 @@ import {
   ChatMessage,
   MessageAnalysis,
   CoachingLevel,
+  CoachingResponse,
 } from '../../types';
+
+import { generateCoachingApi } from '../../services/api';
 
 interface Task5KnowledgeRecommendation {
   rank: number;
@@ -112,6 +117,8 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
     useState<RightPanelTab>('coaching');
 
   const [responseCopied, setResponseCopied] = useState(false);
+  const [coachingResult, setCoachingResult] = useState<CoachingResponse | null>(null);
+  const [isCoaching, setIsCoaching] = useState(false);
 
   /*
    * Scroll only the Live Conversation container.
@@ -330,170 +337,96 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
    */
   /*
    * ================================================================
-   * TASK 6-AWARE RECOMMENDED RESPONSE
+   * TASK 6 - REAL-TIME COACHING
    * ================================================================
    *
-   * Task 4/5 may identify the customer intent correctly, but the
-   * coaching response must also respect the current escalation risk.
-   *
-   * IMPORTANT:
-   * - Low risk: normal intent-based coaching.
-   * - Medium risk: empathetic + direct resolution guidance.
-   * - High risk: de-escalation + clear resolution path.
-   * - Critical risk: stop repeating the generic script and coach the
-   *   agent toward human/supervisor escalation.
-   *
-   * The backend remains the source of truth for escalationRisk.
-   * React does NOT calculate a risk score here.
+   * The backend Coaching Agent is the source of truth for the
+   * suggested response and coaching feedback. The old frontend
+   * intent-based response generator is intentionally not used here,
+   * because it could repeat the same generic response on every turn.
    */
-  const recommendedResponse = useMemo(() => {
-    const normalizedIntent = intent.toLowerCase();
-    const normalizedRisk = escalationRisk.toLowerCase();
+  const latestCustomerMessage = useMemo(() => {
+    const customerMessages = messages.filter(
+      (message) => message.sender === 'customer'
+    );
 
-    const latestCustomerMessage = [...messages]
-      .reverse()
-      .find((message) => message.sender !== 'agent')?.text
-      ?.trim()
-      .toLowerCase() ?? '';
+    return customerMessages[customerMessages.length - 1]?.text?.trim() || '';
+  }, [messages]);
 
-    /* ------------------------------------------------------------
-       CRITICAL ESCALATION
-       ------------------------------------------------------------ */
-    if (normalizedRisk === 'critical') {
-      const mentionsSupervisor =
-        latestCustomerMessage.includes('supervisor') ||
-        latestCustomerMessage.includes('manager') ||
-        latestCustomerMessage.includes('human agent') ||
-        latestCustomerMessage.includes('human support');
+  const coachingHistory = useMemo(
+    () =>
+      messages
+        .filter(
+          (message) =>
+            message.sender === 'customer' ||
+            message.sender === 'agent'
+        )
+        .map((message) => ({
+          sender_type:
+            message.sender === 'customer'
+              ? 'Customer'
+              : 'Support Agent',
+          message_text: message.text,
+        })),
+    [messages]
+  );
 
-      const mentionsChargeback =
-        latestCustomerMessage.includes('chargeback') ||
-        latestCustomerMessage.includes('bank') ||
-        latestCustomerMessage.includes('credit card') ||
-        latestCustomerMessage.includes('dispute');
+  useEffect(() => {
+    let cancelled = false;
 
-      const mentionsRefund =
-        latestCustomerMessage.includes('refund') ||
-        latestCustomerMessage.includes('refunded') ||
-        normalizedIntent.includes('refund') ||
-        normalizedIntent.includes('payment') ||
-        normalizedIntent.includes('billing');
-
-      /*
-       * Critical coaching must react to the CURRENT customer turn.
-       * Do not return one static sentence for every critical turn.
-       */
-      if (mentionsSupervisor) {
-        return (
-          'Absolutely. I understand that you want a supervisor involved. '
-          + 'I’ll escalate this now and make sure they have the invoice, cancellation, '
-          + 'and refund details so you do not have to repeat the situation again.'
-        );
-      }
-
-      if (mentionsChargeback && mentionsRefund) {
-        return (
-          'I understand that you are considering a chargeback and want this refund resolved immediately. '
-          + 'I’ll acknowledge the concern, avoid making you repeat the details, and escalate the case for immediate review.'
-        );
-      }
-
-      if (mentionsRefund) {
-        return (
-          'I understand you need a clear answer about the refund. I’ll stop repeating the same script, '
-          + 'review the cancellation and payment details, and escalate the case if I cannot resolve it directly.'
-        );
-      }
-
-      if (latestCustomerMessage.includes('complaint') || latestCustomerMessage.includes('report')) {
-        return (
-          'I understand that you are unhappy with how this has been handled. I’ll take ownership of the concern, '
-          + 'avoid further back-and-forth, and escalate it for appropriate review.'
-        );
-      }
-
-      return (
-        'I understand that this situation has become extremely frustrating. I’ll take ownership of the next step, '
-        + 'avoid repeating the same response, and escalate the issue for immediate review.'
-      );
+    if (!analysis || !latestCustomerMessage) {
+      setCoachingResult(null);
+      setIsCoaching(false);
+      return () => {
+        cancelled = true;
+      };
     }
 
-    /* ------------------------------------------------------------
-       HIGH ESCALATION
-       ------------------------------------------------------------ */
-    if (normalizedRisk === 'high') {
-      if (
-        latestCustomerMessage.includes('refund') ||
-        normalizedIntent.includes('refund') ||
-        normalizedIntent.includes('payment') ||
-        normalizedIntent.includes('billing')
-      ) {
-        return (
-          'I understand this is frustrating. I’ll address the refund issue directly, '
-          + 'verify the payment and cancellation details, and clearly explain the next step '
-          + 'so we can move this toward resolution.'
-        );
+    const loadCoaching = async () => {
+      setIsCoaching(true);
+
+      try {
+        const result = await generateCoachingApi({
+          message: latestCustomerMessage,
+          intent: analysis.intent || 'general_inquiry',
+          emotion: analysis.emotion || 'neutral',
+          sentiment: analysis.sentiment || 'Neutral',
+          frustration_level: Number(analysis.frustration_level ?? 0),
+          escalation_risk: analysis.escalation_risk || 'Low',
+          conversation_history: coachingHistory,
+          knowledge_recommendations: (analysis.knowledge_recommendations || []) as Array<Record<string, unknown>>,
+        });
+
+        if (!cancelled) {
+          setCoachingResult(result);
+        }
+      } catch (error) {
+        console.error('Real-time coaching request failed:', error);
+
+        if (!cancelled) {
+          setCoachingResult(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCoaching(false);
+        }
       }
+    };
 
-      return (
-        'I understand your frustration. I’ll address the issue directly, avoid unnecessary '
-        + 'back-and-forth, and clearly explain the next step toward resolution.'
-      );
-    }
+    void loadCoaching();
 
-    /* ------------------------------------------------------------
-       MEDIUM ESCALATION
-       ------------------------------------------------------------ */
-    if (normalizedRisk === 'medium') {
-      if (
-        normalizedIntent.includes('refund') ||
-        normalizedIntent.includes('payment') ||
-        normalizedIntent.includes('billing')
-      ) {
-        return (
-          'I understand your concern. I’ll check the account and payment details and '
-          + 'confirm the next step for resolving the refund issue.'
-        );
-      }
-
-      if (normalizedIntent.includes('cancel')) {
-        return (
-          'I understand your concern. I’ll verify the cancellation status and explain '
-          + 'clearly what needs to happen next.'
-        );
-      }
-
-      return (
-        'I understand your concern. I’ll address the issue directly and explain the '
-        + 'next step clearly.'
-      );
-    }
-
-    /* ------------------------------------------------------------
-       LOW / NORMAL ESCALATION
-       ------------------------------------------------------------ */
-    if (
-      normalizedIntent.includes('refund') ||
-      normalizedIntent.includes('payment') ||
-      normalizedIntent.includes('billing')
-    ) {
-      return 'I understand your concern. Let me check the account and payment details so I can confirm the next step for your refund.';
-    }
-
-    if (normalizedIntent.includes('cancel')) {
-      return 'I understand your concern. Let me verify the cancellation status and make sure there are no further charges on the account.';
-    }
-
-    if (normalizedIntent.includes('delivery')) {
-      return 'I understand the concern about your delivery. Let me check the latest order status and confirm what we can do next.';
-    }
-
-    return 'I understand your concern. Let me review the details and help you with the next step.';
+    return () => {
+      cancelled = true;
+    };
   }, [
-    intent,
-    escalationRisk,
-    messages,
+    analysis,
+    latestCustomerMessage,
+    coachingHistory,
   ]);
+
+  const recommendedResponse =
+    coachingResult?.suggested_response?.trim() ||
+    'Waiting for the coaching agent to generate a response.';
 
   const applyRecommendedResponse = () => {
     setInputText(recommendedResponse);
@@ -1486,57 +1419,84 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
 
                   </div>
 
-                  {/* Guidance */}
+                  {/* Task 6 coaching feedback */}
 
                   <div className="rounded-lg border border-slate-200 bg-white p-2.5">
 
-                    <p className="text-[9px] uppercase tracking-wide font-semibold text-slate-400">
-                      Response Guidance
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[9px] uppercase tracking-wide font-semibold text-slate-400">
+                        Coaching Feedback
+                      </p>
 
-                    <div className="mt-1.5 space-y-1.5">
-
-                      <div className="flex gap-2">
-
-                        <span className="w-4.5 h-4.5 rounded-full bg-indigo-50 text-indigo-600 text-[9px] font-bold flex items-center justify-center shrink-0">
-                          1
+                      {isCoaching && (
+                        <span className="flex items-center gap-1 text-[9px] text-indigo-500">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Updating
                         </span>
-
-                        <p className="text-[10px] leading-3.5 text-slate-600">
-                          Acknowledge the customer concern before
-                          giving process details.
-                        </p>
-
-                      </div>
-
-                      <div className="flex gap-2">
-
-                        <span className="w-4.5 h-4.5 rounded-full bg-indigo-50 text-indigo-600 text-[9px] font-bold flex items-center justify-center shrink-0">
-                          2
-                        </span>
-
-                        <p className="text-[10px] leading-3.5 text-slate-600">
-                          Address the detected intent directly and
-                          avoid unnecessary back-and-forth.
-                        </p>
-
-                      </div>
-
-                      <div className="flex gap-2">
-
-                        <span className="w-4.5 h-4.5 rounded-full bg-indigo-50 text-indigo-600 text-[9px] font-bold flex items-center justify-center shrink-0">
-                          3
-                        </span>
-
-                        <p className="text-[10px] leading-3.5 text-slate-600">
-                          Keep the tone professional while live
-                          sentiment and escalation signals are
-                          monitored.
-                        </p>
-
-                      </div>
-
+                      )}
                     </div>
+
+                    {coachingResult ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-1.5 mt-2">
+                          <div className="rounded-md bg-slate-50 p-1.5">
+                            <p className="text-[9px] text-slate-400">Tone</p>
+                            <p className="text-[10px] font-semibold text-slate-700 mt-0.5">
+                              {coachingResult.tone || '—'}
+                            </p>
+                          </div>
+
+                          <div className="rounded-md bg-slate-50 p-1.5">
+                            <p className="text-[9px] text-slate-400">Empathy</p>
+                            <p className="text-[10px] font-semibold text-slate-700 mt-0.5">
+                              {coachingResult.empathy || '—'}
+                            </p>
+                          </div>
+
+                          <div className="rounded-md bg-slate-50 p-1.5">
+                            <p className="text-[9px] text-slate-400">Clarity</p>
+                            <p className="text-[10px] font-semibold text-slate-700 mt-0.5">
+                              {coachingResult.clarity || '—'}
+                            </p>
+                          </div>
+
+                          <div className="rounded-md bg-slate-50 p-1.5">
+                            <p className="text-[9px] text-slate-400">Professionalism</p>
+                            <p className="text-[10px] font-semibold text-slate-700 mt-0.5">
+                              {coachingResult.professionalism || '—'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {coachingResult.coaching_tips.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {coachingResult.coaching_tips.map((tip, index) => (
+                              <div key={`${tip}-${index}`} className="flex gap-1.5 text-[10px] leading-3.5 text-slate-600">
+                                <span className="text-indigo-500 font-bold">•</span>
+                                <span>{tip}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-[9px] text-slate-400">Communication rating</span>
+                          <span className={`text-[10px] font-bold ${
+                            coachingResult.communication_rating === 'Good'
+                              ? 'text-emerald-600'
+                              : 'text-amber-600'
+                          }`}>
+                            {coachingResult.communication_rating}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[10px] leading-4 text-slate-500 mt-1.5">
+                        {isCoaching
+                          ? 'Generating coaching feedback for the latest customer message…'
+                          : 'Coaching feedback will appear after the customer message is analyzed.'}
+                      </p>
+                    )}
 
                   </div>
 
