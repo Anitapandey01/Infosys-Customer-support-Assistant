@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+
 import {
   BrainCircuit,
   Lock,
@@ -10,7 +11,11 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react';
+
+import { registerApi } from "../services/api";
 
 interface RegisterViewProps {
   onBackToLogin: () => void;
@@ -29,12 +34,25 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
     useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isSubmitting) {
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+
     const normalizedName = name.trim();
-    const normalizedEmail = email.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // -----------------------------
+    // Frontend validation
+    // -----------------------------
 
     if (
       !normalizedName ||
@@ -56,14 +74,45 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
       return;
     }
 
-    /*
-     * Registration API will be connected here later.
-     *
-     * For now this is only the UI validation step.
-     */
-    setError(
-      'Registration UI is ready. Backend registration will be connected next.'
-    );
+    // -----------------------------
+    // Backend registration
+    // -----------------------------
+
+    try {
+      setIsSubmitting(true);
+
+      await registerApi(
+        normalizedName,
+        normalizedEmail,
+        password
+      );
+
+      setSuccess(
+        'Account created successfully. Redirecting to sign in...'
+      );
+
+      // Clear form
+      setName('');
+      setEmail('');
+      setPassword('');
+      setConfirmPassword('');
+
+      // Give the success message a moment to display
+      setTimeout(() => {
+        onBackToLogin();
+      }, 1200);
+    } catch (err) {
+      console.error('Registration failed:', err);
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Registration failed. Please try again.';
+
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -98,20 +147,41 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
             </p>
           </div>
 
+          {/* Error */}
           {error && (
             <div
               role="alert"
-              className="mb-6 flex items-start gap-3 rounded-xl border border-amber-900/60 bg-amber-950/30 px-4 py-3 text-sm"
+              className="mb-6 flex items-start gap-3 rounded-xl border border-rose-900/60 bg-rose-950/30 px-4 py-3 text-sm"
             >
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
 
               <div>
-                <p className="font-medium text-amber-300">
-                  Registration
+                <p className="font-medium text-rose-300">
+                  Registration failed
                 </p>
 
-                <p className="mt-0.5 text-amber-400/90">
+                <p className="mt-0.5 text-rose-400/90">
                   {error}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Success */}
+          {success && (
+            <div
+              role="status"
+              className="mb-6 flex items-start gap-3 rounded-xl border border-emerald-900/60 bg-emerald-950/30 px-4 py-3 text-sm"
+            >
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+
+              <div>
+                <p className="font-medium text-emerald-300">
+                  Registration successful
+                </p>
+
+                <p className="mt-0.5 text-emerald-400/90">
+                  {success}
                 </p>
               </div>
             </div>
@@ -121,6 +191,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
             onSubmit={handleSubmit}
             className="space-y-5"
           >
+
             {/* Full Name */}
             <div>
               <label
@@ -142,6 +213,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                   autoComplete="name"
                   required
                   value={name}
+                  disabled={isSubmitting}
                   onChange={(e) => {
                     setName(e.target.value);
 
@@ -150,7 +222,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                     }
                   }}
                   placeholder="Enter your full name"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
                 />
               </div>
             </div>
@@ -176,6 +248,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                   autoComplete="email"
                   required
                   value={email}
+                  disabled={isSubmitting}
                   onChange={(e) => {
                     setEmail(e.target.value);
 
@@ -184,7 +257,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                     }
                   }}
                   placeholder="you@company.com"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
                 />
               </div>
             </div>
@@ -214,6 +287,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                   autoComplete="new-password"
                   required
                   value={password}
+                  disabled={isSubmitting}
                   onChange={(e) => {
                     setPassword(e.target.value);
 
@@ -222,7 +296,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                     }
                   }}
                   placeholder="Create a password"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-11 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-11 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
                 />
 
                 <button
@@ -232,12 +306,13 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                       ? 'Hide password'
                       : 'Show password'
                   }
+                  disabled={isSubmitting}
                   onClick={() =>
                     setShowPassword(
                       (previous) => !previous
                     )
                   }
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition disabled:opacity-50"
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -277,6 +352,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                   autoComplete="new-password"
                   required
                   value={confirmPassword}
+                  disabled={isSubmitting}
                   onChange={(e) => {
                     setConfirmPassword(
                       e.target.value
@@ -287,7 +363,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                     }
                   }}
                   placeholder="Re-enter your password"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-11 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-11 text-sm text-slate-100 placeholder-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
                 />
 
                 <button
@@ -297,12 +373,13 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                       ? 'Hide confirm password'
                       : 'Show confirm password'
                   }
+                  disabled={isSubmitting}
                   onClick={() =>
                     setShowConfirmPassword(
                       (previous) => !previous
                     )
                   }
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition disabled:opacity-50"
                 >
                   {showConfirmPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -316,11 +393,22 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
             {/* Create Account */}
             <button
               type="submit"
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+              disabled={isSubmitting}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span>Create account</span>
-              <ArrowRight className="h-4 w-4" />
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Creating account...</span>
+                </>
+              ) : (
+                <>
+                  <span>Create account</span>
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
             </button>
+
           </form>
 
           {/* Login Link */}
@@ -331,8 +419,9 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
 
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onBackToLogin}
-              className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition"
+              className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition disabled:opacity-50"
             >
               <ArrowLeft className="h-4 w-4" />
               Sign in
@@ -365,6 +454,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
         <p className="mt-6 text-center text-xs text-slate-600">
           Customer Support Assistant
         </p>
+
       </div>
     </div>
   );
