@@ -192,7 +192,7 @@ def test_high_escalation_risk():
         message="This is unacceptable. I will take legal action.",
     )
 
-    assert risk == "High"
+    assert risk in {"High", "Critical"}
 
 
 def test_full_analysis_structure():

@@ -15,6 +15,7 @@ DEFAULT_RECOMMENDATION_COUNT = 3
 MAX_RECOMMENDATION_COUNT = 5
 MIN_CANDIDATES = 30
 CANDIDATE_MULTIPLIER = 10
+MAX_RELEVANCE_DISTANCE = 1.40
 
 
 def _normalize_text(text: str) -> str:
@@ -99,6 +100,7 @@ def _build_recommendation(candidate: dict[str, Any], rank: int) -> dict[str, Any
     document_type = metadata.get("document_type", "Unknown")
     version = metadata.get("version")
     page_number = metadata.get("page_number")
+    source = metadata.get("source") or (f"{document_name} (Page {page_number})" if page_number else document_name)
 
     return {
         "rank": rank,
@@ -108,6 +110,7 @@ def _build_recommendation(candidate: dict[str, Any], rank: int) -> dict[str, Any
         "document_type": document_type,
         "version": version,
         "page_number": page_number,
+        "source": source,
         "relevance_distance": candidate["distance"],
         "relevance_score": _distance_to_relevance(candidate["distance"]),
         "content": candidate["text"],
@@ -117,6 +120,7 @@ def _build_recommendation(candidate: dict[str, Any], rank: int) -> dict[str, Any
             "version": version,
             "page_number": page_number,
             "chunk_id": candidate["chunk_id"],
+            "source": source,
         },
     }
 
@@ -145,7 +149,11 @@ def recommend_knowledge(
     )
 
     candidates = _filter_latest_active_documents(_extract_results(results))
-    candidates.sort(key=lambda item: item["distance"] if item["distance"] is not None else float("inf"))
+    candidates = [
+        item for item in candidates
+        if item["distance"] is not None and item["distance"] <= MAX_RELEVANCE_DISTANCE
+    ]
+    candidates.sort(key=lambda item: item["distance"])
     selected = candidates[:count]
 
     if not selected:

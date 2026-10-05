@@ -8,7 +8,9 @@ import {
   ShieldAlert,
   X,
   BrainCircuit,
+  BarChart3,
 } from 'lucide-react';
+
 
 import { UserRole } from '../types';
 
@@ -85,7 +87,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: BookOpen,
       roles: ['employee', 'admin'],
     },
+    {
+      id: 'team_analytics' as ActiveTab,
+      label: 'Analytics',
+      icon: BarChart3,
+      roles: ['employee', 'admin'],
+    },
   ];
+
 
   const adminItems = [
     {

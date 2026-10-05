@@ -430,6 +430,11 @@ EMOTION_KEYWORDS = {
         "not a real answer",
         "real solution",
         "right now",
+        "immediately",
+        "requested to cancel",
+        "cancel last week",
+        "unauthorized",
+        "charged after",
     ],
 
     "worried": [
@@ -533,6 +538,12 @@ NEGATIVE_WORDS = {
     "runaround",
     "vague",
     "overdue",
+    "immediately",
+    "requested to cancel",
+    "cancel last week",
+    "unauthorized",
+    "overcharged",
+    "dispute",
 }
 
 
@@ -1437,6 +1448,12 @@ EMOTION_KEYWORDS = {
         "not a real answer",
         "real solution",
         "right now",
+        "immediately",
+        "requested to cancel",
+        "cancel last week",
+        "unauthorized",
+        "charged after",
+        "overcharged",
     ],
 
     "worried": [
@@ -1540,9 +1557,13 @@ NEGATIVE_WORDS = {
     "runaround",
     "vague",
     "overdue",
-    "refusing",
-    "refused",
     "unable",
+    "immediately",
+    "requested to cancel",
+    "cancel last week",
+    "unauthorized",
+    "overcharged",
+    "dispute",
 }
 
 
@@ -2294,6 +2315,9 @@ def calculate_frustration(
         "unable to help",
         "refusing to help",
         "refusing",
+        "immediately",
+        "requested to cancel",
+        "cancel last week",
     ]
 
     frustration_count = _keyword_matches(
@@ -2532,20 +2556,47 @@ def calculate_frustration(
     # short.
     # --------------------------------------------------------
 
-    if historical_critical_count >= 1:
-        score = max(score, 8.0)
+    has_negative_resolution = any(
+        neg in text
+        for neg in ["not resolved", "unresolved", "not helping", "still not", "not fixed"]
+    )
 
-    elif historical_escalation_count >= 3:
-        score = max(score, 8.0)
+    has_resolution_signal = not has_negative_resolution and any(
+        signal in text
+        for signal in [
+            "finally",
+            "actually listens",
+            "thank",
+            "thanks",
+            "that helps",
+            "issue resolved",
+            "problem resolved",
+            "is resolved",
+            "now resolved",
+            "clears it up",
+            "fine please process",
+            "fine, please process",
+            "appreciate it",
+        ]
+    )
 
-    elif supervisor_count >= 3:
-        score = max(score, 7.0)
+    if not has_resolution_signal:
+        if historical_critical_count >= 1:
+            score = max(score, 8.0)
 
-    elif historical_escalation_count >= 2:
-        score = max(score, 6.0)
+        elif historical_escalation_count >= 3:
+            score = max(score, 8.0)
 
-    elif len(history) >= 6 and historical_frustration_count >= 2:
-        score = max(score, 5.0)
+        elif supervisor_count >= 3:
+            score = max(score, 7.0)
+
+        elif historical_escalation_count >= 2:
+            score = max(score, 6.0)
+
+        elif len(history) >= 6 and historical_frustration_count >= 2:
+            score = max(score, 5.0)
+    else:
+        score = min(score, 4.0)
 
     return int(
         _clamp(
@@ -2577,6 +2628,34 @@ def determine_satisfaction_trend(
     message: str,
     conversation_history: list[dict[str, Any]] | None = None,
 ) -> str:
+
+    norm_text = _normalize_text(message)
+    has_negative_resolution = any(
+        neg in norm_text
+        for neg in ["not resolved", "unresolved", "not helping", "still not", "not fixed"]
+    )
+
+    has_resolution_signal = not has_negative_resolution and any(
+        signal in norm_text
+        for signal in [
+            "finally",
+            "actually listens",
+            "thank",
+            "thanks",
+            "that helps",
+            "issue resolved",
+            "problem resolved",
+            "is resolved",
+            "now resolved",
+            "clears it up",
+            "fine please process",
+            "fine, please process",
+            "appreciate it",
+        ]
+    )
+
+    if has_resolution_signal:
+        return "Improving"
 
     current_sentiment = detect_sentiment(
         message

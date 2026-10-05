@@ -18,6 +18,8 @@ import { ManualModeModal } from './components/ManualModeModal';
 import { LoginView } from './components/LoginView';
 import { PolicyManagementView } from './components/PolicyManagementView';
 import { SimulatorSetupView } from './components/SimulatorSetupView';
+import { PerformanceAnalyticsView } from './components/PerformanceAnalyticsView';
+import { PostInteractionReportModal } from './components/PostInteractionReportModal';
 
 import {
   InteractionMode,
@@ -31,6 +33,7 @@ import {
   AgentProfile,
   DifficultyLevel,
   SimulatorAnalysis,
+  PostInteractionSummary,
 } from './types';
 
 import {
@@ -46,7 +49,10 @@ import {
   generateScenarioApi,
   fetchCurrentUserApi,
   logoutApi,
+  completeSessionApi,
+  generateAdhocSummaryApi,
 } from './services/api';
+
 
 export default function App() {
   // ============================================================
@@ -152,6 +158,13 @@ export default function App() {
 
   const [simulatorSessionId, setSimulatorSessionId] =
     useState<string | null>(null);
+
+  const [postInteractionSummary, setPostInteractionSummary] =
+    useState<PostInteractionSummary | null>(null);
+
+  const [isSummaryModalOpen, setIsSummaryModalOpen] =
+    useState<boolean>(false);
+
 
   // ============================================================
   // AUTH SESSION RESTORE
@@ -415,6 +428,48 @@ export default function App() {
           backendAnalysis.intentConfidence ??
           0
         ),
+
+      escalationRisk:
+        backendEscalation && backendEscalation.risk_score !== undefined
+          ? Math.round(Number(backendEscalation.risk_score) * 10)
+          : backendAnalysis.escalation_risk_score !== undefined
+            ? Math.round(Number(backendAnalysis.escalation_risk_score) * 10)
+            : 0,
+
+      escalationLevel:
+        String(backendEscalation?.risk_level ?? backendAnalysis.escalation_risk ?? 'Low').toLowerCase(),
+
+      riskReasons:
+        backendEscalation && Array.isArray(backendEscalation.reasons)
+          ? backendEscalation.reasons.filter(
+              (reason): reason is string => typeof reason === 'string'
+            )
+          : Array.isArray(backendAnalysis.escalation_reasons)
+            ? (backendAnalysis.escalation_reasons as string[])
+            : [],
+
+      recommendedIntervention:
+        String(
+          backendEscalation?.recommended_action ??
+            backendAnalysis.escalation_recommended_action ??
+            ''
+        ),
+
+      relevantKnowledge:
+        (backendAnalysis.knowledge_recommendations?.[0] || (backendAnalysis as any).relevantKnowledge)
+          ? {
+              kbId: String(backendAnalysis.knowledge_recommendations?.[0]?.doc_id || 'KB-101'),
+              title: String(backendAnalysis.knowledge_recommendations?.[0]?.title || 'Support Policy'),
+              policySnippet: String(backendAnalysis.knowledge_recommendations?.[0]?.content || ''),
+              source: String(backendAnalysis.knowledge_recommendations?.[0]?.source || backendAnalysis.knowledge_recommendations?.[0]?.title || 'Support Policy'),
+              confidence: Math.round((1.0 - Math.min(1.0, Number(backendAnalysis.knowledge_recommendations?.[0]?.distance ?? 0.15))) * 100),
+              troubleshootingSteps: [
+                'Verify account details and transaction history.',
+                'Confirm policy eligibility and calculate accurate amounts.',
+                'Communicate outcome with clear next steps and timeline.'
+              ]
+            }
+          : undefined,
 
       intentConfidence:
         backendAnalysis.intentConfidence ??
@@ -1099,22 +1154,39 @@ export default function App() {
 
   const handleFinishSession =
     async () => {
-      setHasActiveSession(false);
+      try {
+        if (simulatorSessionId) {
+          const summary = await completeSessionApi(simulatorSessionId);
+          setPostInteractionSummary(summary);
+          setIsSummaryModalOpen(true);
+        } else if (messages.length > 0) {
+          const summary = await generateAdhocSummaryApi({
+            messages,
+            scenarioTitle: activeScenario?.title || 'Customer Support Session',
+          });
+          setPostInteractionSummary(summary);
+          setIsSummaryModalOpen(true);
+        }
+      } catch (error) {
+        console.error(
+          'Error completing session and generating summary:',
+          error
+        );
+      } finally {
+        setHasActiveSession(false);
 
-      setSimulatorSessionId(null);
+        setSimulatorSessionId(null);
 
-      setSimulatorConfig(null);
+        setSimulatorConfig(null);
 
-      setMessages([]);
+        setMessages([]);
 
-      setCurrentAnalysis(undefined);
+        setCurrentAnalysis(undefined);
 
-      setInputText('');
-
-      setActiveTab(
-        'dashboard'
-      );
+        setInputText('');
+      }
     };
+
 
   // ============================================================
   // AI SCENARIO GENERATION
@@ -1183,8 +1255,10 @@ export default function App() {
         'live_console',
         'replay',
         'knowledge_base',
+        'team_analytics',
       ].includes(tab);
     }
+
 
     if (
       normalizedRole ===
@@ -1206,7 +1280,7 @@ export default function App() {
   // ============================================================
 
   const renderModeCards = () => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
       <button
         type="button"
         onClick={() => {
@@ -1317,8 +1391,35 @@ export default function App() {
           Open Replay →
         </span>
       </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setActiveTab(
+            'team_analytics'
+          );
+        }}
+        className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 transition"
+      >
+        <div className="w-11 h-11 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-5">
+          <BarChart3 className="w-5 h-5" />
+        </div>
+
+        <h2 className="text-lg font-bold text-white">
+          Performance Analytics
+        </h2>
+
+        <p className="text-sm text-slate-400 mt-2">
+          Review resolution quality, customer sentiment trends, and agent improvement data.
+        </p>
+
+        <span className="inline-block mt-5 text-xs font-semibold text-purple-400">
+          Open Analytics →
+        </span>
+      </button>
     </div>
   );
+
 
   // ============================================================
   // LOADING
@@ -1364,7 +1465,7 @@ export default function App() {
   // ============================================================
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-['Plus_Jakarta_Sans',sans-serif]">
+    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
       <Navbar
         currentMode={
           currentMode
@@ -1439,7 +1540,7 @@ export default function App() {
         }
       />
 
-      <div className="flex-1 flex overflow-hidden max-w-7xl w-full mx-auto px-0 sm:px-4 lg:px-8 py-0 sm:py-4 gap-4">
+      <div className="flex-1 min-h-0 flex overflow-hidden max-w-7xl w-full mx-auto px-0 sm:px-4 lg:px-8 py-0 sm:py-3 gap-4">
         {currentRole !== 'user' && (
           <Sidebar
             activeTab={
@@ -1511,7 +1612,13 @@ export default function App() {
           />
         )}
 
-        <main className="flex-1 overflow-y-auto bg-slate-950/90 rounded-2xl">
+        <main
+          className={`flex-1 min-h-0 flex flex-col rounded-2xl ${
+            activeTab === 'live_console'
+              ? 'overflow-hidden'
+              : 'overflow-y-auto bg-slate-950/90'
+          }`}
+        >
           {!isTabAuthorized(
             currentUser.role,
             activeTab
@@ -1791,12 +1898,15 @@ export default function App() {
 
               {activeTab ===
                 'knowledge_base' &&
-                currentRole ===
-                  'employee' && (
+                (currentRole === 'employee' || currentRole === 'admin') && (
                   <KnowledgeBaseView
                     documents={
                       knowledgeDocs
                     }
+                    onAddDocument={(newDoc) => {
+                      setKnowledgeDocs((prev) => [newDoc, ...prev]);
+                    }}
+                    userRole={currentRole}
                   />
                 )}
 
@@ -1807,6 +1917,15 @@ export default function App() {
               {activeTab ===
                 'replay' && (
                 <ReplayModeView />
+              )}
+
+              {/* ==================================================
+                  PERFORMANCE ANALYTICS
+                  ================================================== */}
+
+              {activeTab ===
+                'team_analytics' && (
+                <PerformanceAnalyticsView />
               )}
             </>
           )}
@@ -1832,6 +1951,24 @@ export default function App() {
           handleAnalyzeManualMessage
         }
       />
+
+      {/* ==========================================================
+          TASK 8: POST-INTERACTION REPORT MODAL
+          ========================================================== */}
+
+      <PostInteractionReportModal
+        isOpen={isSummaryModalOpen}
+        onClose={() => setIsSummaryModalOpen(false)}
+        summary={postInteractionSummary}
+        onNavigateToAnalytics={() => {
+          setActiveTab('team_analytics');
+        }}
+        onStartNewSession={() => {
+          setActiveTab('simulator_setup');
+          setCurrentMode('simulator');
+        }}
+      />
+
 
       {/* ==========================================================
           MOBILE NAVIGATION
