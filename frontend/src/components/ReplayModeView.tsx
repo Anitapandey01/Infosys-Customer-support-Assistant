@@ -33,6 +33,7 @@ import {
   INITIAL_KNOWLEDGE_DOCS,
 } from "../data/initialData";
 
+import { Scenario } from "../types";
 import { analyzeTurnApi } from "../services/api";
 
 type Sender = "customer" | "agent";
@@ -581,7 +582,8 @@ export const ReplayModeView: React.FC = () => {
 
         conversationHistory: history,
 
-        scenario,
+        scenario:
+          scenario as unknown as Scenario,
 
         lastAgentMessage:
           lastAgentMessage ||
@@ -937,7 +939,7 @@ export const ReplayModeView: React.FC = () => {
               <button
                 type="button"
                 onClick={resetReplay}
-                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 text-xs font-semibold"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 text-xs font-semibold hover:bg-slate-800"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 Restart
@@ -949,10 +951,10 @@ export const ReplayModeView: React.FC = () => {
                 onClick={() =>
                   setPlaying((value) => !value)
                 }
-                className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-semibold ${
                   playing
                     ? "bg-indigo-600 border-indigo-500 text-white"
-                    : "bg-slate-900 border-slate-700 text-slate-300"
+                    : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800"
                 }`}
               >
                 {playing ? (
@@ -962,6 +964,27 @@ export const ReplayModeView: React.FC = () => {
                 )}
 
                 {playing ? "Pause" : "Play"}
+              </button>
+
+              <button
+                type="button"
+                onClick={previousTurn}
+                disabled={turnIndex === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 text-xs font-semibold hover:bg-slate-800 disabled:opacity-40"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Previous
+              </button>
+
+              <button
+                type="button"
+                onClick={nextTurn}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md transition"
+              >
+                {turnIndex === totalTurns - 1
+                  ? "Complete Replay"
+                  : "Next Turn"}
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -1361,17 +1384,17 @@ export const ReplayModeView: React.FC = () => {
               {analysis ? (
                 <div className="p-4 space-y-3">
                   {/* INTENT + SENTIMENT */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-indigo-500/20 p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="min-w-0 rounded-2xl border border-indigo-500/20 p-2.5 overflow-hidden">
                       <p className="text-[9px] text-slate-500 uppercase">
                         Intent
                       </p>
 
-                      <p className="text-xs font-bold text-indigo-200 mt-1">
+                      <p className="text-xs font-bold text-indigo-200 mt-1 truncate" title={analysis.intent}>
                         {analysis.intent}
                       </p>
 
-                      <p className="text-[9px] text-slate-600 mt-1">
+                      <p className="text-[9px] text-slate-600 mt-1 truncate">
                         Confidence:{" "}
                         {Math.round(
                           analysis.intentConfidence
@@ -1380,16 +1403,16 @@ export const ReplayModeView: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="rounded-2xl border border-slate-800 p-3">
+                    <div className="min-w-0 rounded-2xl border border-slate-800 p-2.5 overflow-hidden">
                       <p className="text-[9px] text-slate-500 uppercase">
                         Sentiment
                       </p>
 
-                      <p className="text-xs font-bold text-white mt-1 capitalize">
+                      <p className="text-xs font-bold text-white mt-1 capitalize truncate">
                         {analysis.sentiment}
                       </p>
 
-                      <p className="text-[9px] text-slate-600 mt-1">
+                      <p className="text-[9px] text-slate-600 mt-1 truncate">
                         Confidence:{" "}
                         {Math.round(
                           analysis.sentimentConfidence

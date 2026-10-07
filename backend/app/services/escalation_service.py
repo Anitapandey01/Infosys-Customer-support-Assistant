@@ -568,9 +568,41 @@ def calculate_escalation_risk(
 
         score += 3.0
 
-        reasons.append(
-            "Customer mentioned disputing the charge through a financial institution."
+    # ========================================================
+    # 10.5. DE-ESCALATION / RESOLUTION ACCEPTANCE
+    # ========================================================
+
+    has_resolution_acceptance = (
+        _contains_any(
+            text,
+            [
+                "thank",
+                "resolved",
+                "confirmed",
+                "appreciate",
+                "fixed",
+                "helpful",
+                "satisfied",
+                "great",
+            ],
         )
+        and not _contains_any(
+            text,
+            [
+                "not resolved",
+                "still not",
+                "still haven't",
+                "still have not",
+                "unresolved",
+                "no one is helping",
+                "nobody is helping",
+            ],
+        )
+    )
+
+    if has_resolution_acceptance:
+        score = min(score, 2.0)
+        reasons = ["Customer acknowledged resolution and de-escalated."]
 
     # ========================================================
     # 11. FINAL NORMALIZATION

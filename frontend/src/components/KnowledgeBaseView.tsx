@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BookOpen,
   Search,
@@ -19,8 +19,8 @@ import { KnowledgeDocument, UserRole } from '../types';
 
 interface KnowledgeBaseViewProps {
   documents: KnowledgeDocument[];
-  onAddDocument: (doc: KnowledgeDocument) => void;
-  userRole: UserRole;
+  onAddDocument?: (doc: KnowledgeDocument) => void;
+  userRole?: UserRole;
 }
 
 export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
@@ -28,10 +28,20 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
   onAddDocument,
   userRole
 }) => {
-  const [selectedDoc, setSelectedDoc] = useState<KnowledgeDocument>(documents[0]);
+  const [localDocs, setLocalDocs] = useState<KnowledgeDocument[]>(documents || []);
+  const [selectedDoc, setSelectedDoc] = useState<KnowledgeDocument | null>(documents?.[0] || null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
+
+  useEffect(() => {
+    if (documents && documents.length > 0) {
+      setLocalDocs(documents);
+      if (!selectedDoc) {
+        setSelectedDoc(documents[0]);
+      }
+    }
+  }, [documents]);
 
   // New Doc Form State
   const [newTitle, setNewTitle] = useState('');
@@ -41,7 +51,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
 
   const categories = ['All', 'Policies', 'Billing', 'Shipping', 'Security', 'Technical'];
 
-  const filteredDocs = documents.filter((doc) => {
+  const filteredDocs = localDocs.filter((doc) => {
     const matchCat = selectedCategory === 'All' || doc.category === selectedCategory;
     const matchSearch =
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -56,18 +66,27 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
 
     const newDoc: KnowledgeDocument = {
       id: `KB-${Math.floor(100 + Math.random() * 900)}`,
-      title: newTitle,
+      title: newTitle.trim(),
       category: newCategory,
       updatedAt: new Date().toISOString().split('T')[0],
       chunkCount: Math.ceil(newContent.length / 300),
       embeddingCount: Math.ceil(newContent.length / 100),
       status: 'indexed',
       citationsCount: 0,
-      summary: newSummary || newContent.slice(0, 120),
-      content: newContent
+      summary: newSummary.trim() || newContent.trim().slice(0, 120),
+      content: newContent.trim()
     };
 
-    onAddDocument(newDoc);
+    setLocalDocs((prev) => [newDoc, ...prev]);
+
+    if (typeof onAddDocument === 'function') {
+      try {
+        onAddDocument(newDoc);
+      } catch (err) {
+        console.error('Failed to notify parent of new document:', err);
+      }
+    }
+
     setSelectedDoc(newDoc);
     setShowAddModal(false);
     setNewTitle('');
@@ -119,7 +138,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
           </div>
           <div>
             <span className="text-[10px] sm:text-[11px] text-slate-400 block">Vector Index</span>
-            <span className="text-sm sm:text-base font-bold text-white">{documents.reduce((acc, d) => acc + d.chunkCount, 0)} Chunks</span>
+            <span className="text-sm sm:text-base font-bold text-white">{localDocs.reduce((acc, d) => acc + d.chunkCount, 0)} Chunks</span>
           </div>
         </div>
 
@@ -129,7 +148,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
           </div>
           <div>
             <span className="text-[10px] sm:text-[11px] text-slate-400 block">Live Citations</span>
-            <span className="text-sm sm:text-base font-bold text-white">{documents.reduce((acc, d) => acc + d.citationsCount, 0)} Citations</span>
+            <span className="text-sm sm:text-base font-bold text-white">{localDocs.reduce((acc, d) => acc + d.citationsCount, 0)} Citations</span>
           </div>
         </div>
 

@@ -171,3 +171,102 @@ class Message(Base):
         default="Text",
         nullable=False
     )
+
+
+class SessionSummary(Base):
+
+    __tablename__ = "session_summaries"
+
+    summary_id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    session_id = Column(
+        Integer,
+        ForeignKey("sessions.session_id"),
+        nullable=True,
+        index=True
+    )
+
+    scenario_title = Column(
+        String,
+        nullable=True
+    )
+
+    primary_issue = Column(
+        String,
+        nullable=True
+    )
+
+    resolution_status = Column(
+        String,
+        nullable=False,
+        default="Unresolved"
+    )
+
+    resolution_quality_score = Column(
+        Float,
+        nullable=False,
+        default=0.0
+    )
+
+    communication_quality = Column(
+        String,
+        nullable=True
+    )
+
+    communication_score = Column(
+        Float,
+        nullable=True,
+        default=0.0
+    )
+
+    empathy_score = Column(
+        Float,
+        nullable=True,
+        default=0.0
+    )
+
+    policy_adherence_score = Column(
+        Float,
+        nullable=True,
+        default=0.0
+    )
+
+    summary_text = Column(
+        Text,
+        nullable=True
+    )
+
+    sentiment_journey = Column(
+        Text,
+        nullable=True
+    )
+
+    agent_strengths = Column(
+        Text,
+        nullable=True
+    )
+
+    agent_weaknesses = Column(
+        Text,
+        nullable=True
+    )
+
+    coaching_recommendations = Column(
+        Text,
+        nullable=True
+    )
+
+    metrics_payload = Column(
+        Text,
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )

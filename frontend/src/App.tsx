@@ -6,12 +6,6 @@ import {
   BookOpen,
   BarChart3,
   LayoutDashboard,
-  FileText,
-  ArrowLeft,
-  CheckCircle2,
-  AlertTriangle,
-  Clock3,
-  TrendingUp,
 } from 'lucide-react';
 
 import { Navbar } from './components/Navbar';
@@ -24,6 +18,8 @@ import { ManualModeModal } from './components/ManualModeModal';
 import { LoginView } from './components/LoginView';
 import { PolicyManagementView } from './components/PolicyManagementView';
 import { SimulatorSetupView } from './components/SimulatorSetupView';
+import { PerformanceAnalyticsView } from './components/PerformanceAnalyticsView';
+import { PostInteractionReportModal } from './components/PostInteractionReportModal';
 
 import {
   InteractionMode,
@@ -37,6 +33,7 @@ import {
   AgentProfile,
   DifficultyLevel,
   SimulatorAnalysis,
+  PostInteractionSummary,
 } from './types';
 
 import {
@@ -52,30 +49,10 @@ import {
   generateScenarioApi,
   fetchCurrentUserApi,
   logoutApi,
-  generateReportApi,
+  completeSessionApi,
+  generateAdhocSummaryApi,
 } from './services/api';
 
-type PostInteractionReport = Awaited<
-  ReturnType<typeof generateReportApi>
-> & {
-  outcome?: string;
-  interactionSummary?: {
-    intent?: string;
-    emotion?: string;
-    sentiment?: string;
-    frustration_level?: number;
-    satisfaction_trend?: string;
-    escalation_risk?: string;
-    outcome?: string;
-  };
-  conversationMetrics?: {
-    total_messages?: number;
-    customer_messages?: number;
-    agent_messages?: number;
-  };
-  durationSeconds?: number;
-  generatedAt?: string;
-};
 
 export default function App() {
   // ============================================================
@@ -182,6 +159,13 @@ export default function App() {
   const [simulatorSessionId, setSimulatorSessionId] =
     useState<string | null>(null);
 
+  const [postInteractionSummary, setPostInteractionSummary] =
+    useState<PostInteractionSummary | null>(null);
+
+  const [isSummaryModalOpen, setIsSummaryModalOpen] =
+    useState<boolean>(false);
+
+
   // ============================================================
   // AUTH SESSION RESTORE
   // ============================================================
@@ -248,8 +232,6 @@ export default function App() {
     setCurrentAnalysis(undefined);
 
     setHasActiveSession(false);
-    setPostInteractionReport(null);
-    setReportError(null);
   };
 
   // ============================================================
@@ -312,15 +294,6 @@ export default function App() {
 
   const [isManualModalOpen, setIsManualModalOpen] =
     useState(false);
-
-  const [postInteractionReport, setPostInteractionReport] =
-    useState<PostInteractionReport | null>(null);
-
-  const [isGeneratingReport, setIsGeneratingReport] =
-    useState(false);
-
-  const [reportError, setReportError] =
-    useState<string | null>(null);
 
   // ============================================================
   // TYPE NORMALIZATION
@@ -455,6 +428,48 @@ export default function App() {
           backendAnalysis.intentConfidence ??
           0
         ),
+
+      escalationRisk:
+        backendEscalation && backendEscalation.risk_score !== undefined
+          ? Math.round(Number(backendEscalation.risk_score) * 10)
+          : backendAnalysis.escalation_risk_score !== undefined
+            ? Math.round(Number(backendAnalysis.escalation_risk_score) * 10)
+            : 0,
+
+      escalationLevel:
+        String(backendEscalation?.risk_level ?? backendAnalysis.escalation_risk ?? 'Low').toLowerCase(),
+
+      riskReasons:
+        backendEscalation && Array.isArray(backendEscalation.reasons)
+          ? backendEscalation.reasons.filter(
+              (reason): reason is string => typeof reason === 'string'
+            )
+          : Array.isArray(backendAnalysis.escalation_reasons)
+            ? (backendAnalysis.escalation_reasons as string[])
+            : [],
+
+      recommendedIntervention:
+        String(
+          backendEscalation?.recommended_action ??
+            backendAnalysis.escalation_recommended_action ??
+            ''
+        ),
+
+      relevantKnowledge:
+        (backendAnalysis.knowledge_recommendations?.[0] || (backendAnalysis as any).relevantKnowledge)
+          ? {
+              kbId: String(backendAnalysis.knowledge_recommendations?.[0]?.doc_id || 'KB-101'),
+              title: String(backendAnalysis.knowledge_recommendations?.[0]?.title || 'Support Policy'),
+              policySnippet: String(backendAnalysis.knowledge_recommendations?.[0]?.content || ''),
+              source: String(backendAnalysis.knowledge_recommendations?.[0]?.source || backendAnalysis.knowledge_recommendations?.[0]?.title || 'Support Policy'),
+              confidence: Math.round((1.0 - Math.min(1.0, Number(backendAnalysis.knowledge_recommendations?.[0]?.distance ?? 0.15))) * 100),
+              troubleshootingSteps: [
+                'Verify account details and transaction history.',
+                'Confirm policy eligibility and calculate accurate amounts.',
+                'Communicate outcome with clear next steps and timeline.'
+              ]
+            }
+          : undefined,
 
       intentConfidence:
         backendAnalysis.intentConfidence ??
@@ -1134,65 +1149,44 @@ export default function App() {
     };
 
   // ============================================================
-  // FINISH SESSION - TASK 8
+  // FINISH SESSION
   // ============================================================
 
-  const handleFinishSession = async () => {
-    if (isGeneratingReport) {
-      return;
-    }
+  const handleFinishSession =
+    async () => {
+      try {
+        if (simulatorSessionId) {
+          const summary = await completeSessionApi(simulatorSessionId);
+          setPostInteractionSummary(summary);
+          setIsSummaryModalOpen(true);
+        } else if (messages.length > 0) {
+          const summary = await generateAdhocSummaryApi({
+            messages,
+            scenarioTitle: activeScenario?.title || 'Customer Support Session',
+          });
+          setPostInteractionSummary(summary);
+          setIsSummaryModalOpen(true);
+        }
+      } catch (error) {
+        console.error(
+          'Error completing session and generating summary:',
+          error
+        );
+      } finally {
+        setHasActiveSession(false);
 
-    const completedMessages = [...messages];
-    const durationSeconds = Math.max(
-      0,
-      Math.round((Date.now() - sessionStartTime) / 1000)
-    );
+        setSimulatorSessionId(null);
 
-    if (completedMessages.length === 0) {
-      setHasActiveSession(false);
-      setSimulatorSessionId(null);
-      setSimulatorConfig(null);
-      setCurrentAnalysis(undefined);
-      setInputText('');
-      setReportError('There are no conversation messages to generate a report.');
-      setActiveTab('dashboard');
-      return;
-    }
+        setSimulatorConfig(null);
 
-    setIsGeneratingReport(true);
-    setReportError(null);
+        setMessages([]);
 
-    try {
-      const reportMessages = completedMessages.map((message) => ({
-        id: message.id,
-        sender_type: message.sender === 'customer' ? 'customer' : message.sender === 'agent' ? 'agent' : 'system',
-        message_text: message.text,
-        timestamp: message.timestamp,
-        message_type: 'Text',
-      }));
+        setCurrentAnalysis(undefined);
 
-      const report = await generateReportApi({
-        scenario: activeScenario,
-        messages: reportMessages as unknown as ChatMessage[],
-        durationSeconds,
-        coachingLevel,
-      });
+        setInputText('');
+      }
+    };
 
-      setPostInteractionReport(report);
-      setHasActiveSession(false);
-      setSimulatorSessionId(null);
-      setSimulatorConfig(null);
-      setMessages(completedMessages);
-      setCurrentAnalysis(undefined);
-      setInputText('');
-      setActiveTab('reports');
-    } catch (error) {
-      console.error('Failed to generate Task 8 report:', error);
-      setReportError('Unable to generate the post-interaction report. Please try finishing the session again.');
-    } finally {
-      setIsGeneratingReport(false);
-    }
-  };
 
   // ============================================================
   // AI SCENARIO GENERATION
@@ -1261,9 +1255,10 @@ export default function App() {
         'live_console',
         'replay',
         'knowledge_base',
-        'reports',
+        'team_analytics',
       ].includes(tab);
     }
+
 
     if (
       normalizedRole ===
@@ -1283,17 +1278,9 @@ export default function App() {
   // ============================================================
   // MODE CARDS
   // ============================================================
-    // ============================================================
-  // MODE CARDS
-  // ============================================================
 
   const renderModeCards = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-
-      {/* ======================================================
-          SIMULATOR
-          ====================================================== */}
-
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
       <button
         type="button"
         onClick={() => {
@@ -1343,10 +1330,6 @@ export default function App() {
         </span>
       </button>
 
-      {/* ======================================================
-          MANUAL MODE
-          ====================================================== */}
-
       <button
         type="button"
         onClick={() => {
@@ -1377,10 +1360,6 @@ export default function App() {
           Open Manual Mode →
         </span>
       </button>
-
-      {/* ======================================================
-          REPLAY
-          ====================================================== */}
 
       <button
         type="button"
@@ -1413,45 +1392,35 @@ export default function App() {
         </span>
       </button>
 
-      {/* ======================================================
-          POST-INTERACTION ANALYSIS
-          ====================================================== */}
-
       <button
         type="button"
         onClick={() => {
-          setCurrentMode(
-            'replay'
-          );
-
           setActiveTab(
-            'reports'
+            'team_analytics'
           );
         }}
-        className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 transition"
+        className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 transition"
       >
-        <div className="w-11 h-11 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-5">
+        <div className="w-11 h-11 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-5">
           <BarChart3 className="w-5 h-5" />
         </div>
 
         <h2 className="text-lg font-bold text-white">
-          Post-Interaction Analysis
+          Performance Analytics
         </h2>
 
         <p className="text-sm text-slate-400 mt-2">
-          Analyze completed conversations, review
-          performance, and track conversation history.
+          Review resolution quality, customer sentiment trends, and agent improvement data.
         </p>
 
-        <span className="inline-block mt-5 text-xs font-semibold text-cyan-400">
-          View Analysis →
+        <span className="inline-block mt-5 text-xs font-semibold text-purple-400">
+          Open Analytics →
         </span>
       </button>
-
     </div>
   );
-  
-          
+
+
   // ============================================================
   // LOADING
   // ============================================================
@@ -1496,7 +1465,7 @@ export default function App() {
   // ============================================================
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-['Plus_Jakarta_Sans',sans-serif]">
+    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
       <Navbar
         currentMode={
           currentMode
@@ -1571,7 +1540,7 @@ export default function App() {
         }
       />
 
-      <div className="flex-1 flex overflow-hidden max-w-7xl w-full mx-auto px-0 sm:px-4 lg:px-8 py-0 sm:py-4 gap-4">
+      <div className="flex-1 min-h-0 flex overflow-hidden max-w-7xl w-full mx-auto px-0 sm:px-4 lg:px-8 py-0 sm:py-3 gap-4">
         {currentRole !== 'user' && (
           <Sidebar
             activeTab={
@@ -1643,7 +1612,13 @@ export default function App() {
           />
         )}
 
-        <main className="flex-1 overflow-y-auto bg-slate-950/90 rounded-2xl">
+        <main
+          className={`flex-1 min-h-0 flex flex-col rounded-2xl ${
+            activeTab === 'live_console'
+              ? 'overflow-hidden'
+              : 'overflow-y-auto bg-slate-950/90'
+          }`}
+        >
           {!isTabAuthorized(
             currentUser.role,
             activeTab
@@ -1923,176 +1898,17 @@ export default function App() {
 
               {activeTab ===
                 'knowledge_base' &&
-                currentRole ===
-                  'employee' && (
+                (currentRole === 'employee' || currentRole === 'admin') && (
                   <KnowledgeBaseView
                     documents={
                       knowledgeDocs
                     }
+                    onAddDocument={(newDoc) => {
+                      setKnowledgeDocs((prev) => [newDoc, ...prev]);
+                    }}
+                    userRole={currentRole}
                   />
                 )}
-
-              {/* ==================================================
-                  TASK 8 - POST-INTERACTION REPORT
-                  ================================================== */}
-
-              {activeTab === 'reports' && (
-                <div className="p-6 sm:p-8 space-y-6">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-widest text-indigo-400 font-semibold">
-                        Task 8
-                      </p>
-                      <h1 className="text-2xl sm:text-3xl font-bold text-white mt-2">
-                        Post-Interaction Summary
-                      </h1>
-                      <p className="text-sm text-slate-400 mt-2">
-                        Review the completed conversation, performance, sentiment journey, strengths, weaknesses, and coaching recommendations.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('dashboard')}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-200 text-xs font-semibold hover:bg-slate-800"
-                    >
-                      <ArrowLeft className="w-4 h-4" />
-                      Dashboard
-                    </button>
-                  </div>
-
-                  {isGeneratingReport && (
-                    <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-5 text-sm text-indigo-200">
-                      Generating your post-interaction report...
-                    </div>
-                  )}
-
-                  {reportError && (
-                    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-sm text-rose-200">
-                      {reportError}
-                    </div>
-                  )}
-
-                  {!postInteractionReport && !isGeneratingReport && !reportError && (
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
-                      <FileText className="w-10 h-10 text-slate-500 mx-auto mb-3" />
-                      <h2 className="text-lg font-semibold text-white">No completed interaction report yet</h2>
-                      <p className="text-sm text-slate-400 mt-2">Finish a simulator conversation to generate the Task 8 report.</p>
-                    </div>
-                  )}
-
-                  {postInteractionReport && (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                          <p className="text-xs text-slate-400">Overall Score</p>
-                          <p className="text-3xl font-bold text-white mt-2">{postInteractionReport.score?.overall ?? postInteractionReport.score?.overallScore ?? postInteractionReport.score?.score ?? 0}</p>
-                        </div>
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                          <p className="text-xs text-slate-400">Outcome</p>
-                          <p className="text-lg font-bold text-white mt-2 flex items-center gap-2">
-                            {postInteractionReport.resolved ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : postInteractionReport.escalated ? <AlertTriangle className="w-5 h-5 text-amber-400" /> : <Clock3 className="w-5 h-5 text-slate-400" />}
-                            {postInteractionReport.outcome || (postInteractionReport.resolved ? 'Resolved' : postInteractionReport.escalated ? 'Escalated' : 'Unresolved')}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                          <p className="text-xs text-slate-400">Sentiment Improvement</p>
-                          <p className="text-3xl font-bold text-white mt-2 flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-emerald-400" />
-                            {postInteractionReport.sentimentImprovement ?? 0}%
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                          <p className="text-xs text-slate-400">XP Earned</p>
-                          <p className="text-3xl font-bold text-white mt-2">+{postInteractionReport.xpEarned ?? 0}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                          <h2 className="text-lg font-semibold text-white">Interaction Summary</h2>
-                          <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
-                            <div><p className="text-slate-500">Intent</p><p className="text-slate-200 mt-1">{postInteractionReport.interactionSummary?.intent || 'General inquiry'}</p></div>
-                            <div><p className="text-slate-500">Emotion</p><p className="text-slate-200 mt-1">{postInteractionReport.interactionSummary?.emotion || 'Unknown'}</p></div>
-                            <div><p className="text-slate-500">Sentiment</p><p className="text-slate-200 mt-1">{postInteractionReport.interactionSummary?.sentiment || 'Neutral'}</p></div>
-                            <div><p className="text-slate-500">Frustration</p><p className="text-slate-200 mt-1">{postInteractionReport.interactionSummary?.frustration_level ?? 0}/10</p></div>
-                            <div><p className="text-slate-500">Satisfaction Trend</p><p className="text-slate-200 mt-1">{postInteractionReport.interactionSummary?.satisfaction_trend || 'Stable'}</p></div>
-                            <div><p className="text-slate-500">Escalation Risk</p><p className="text-slate-200 mt-1">{postInteractionReport.interactionSummary?.escalation_risk || 'Low'}</p></div>
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                          <h2 className="text-lg font-semibold text-white">Performance Breakdown</h2>
-                          <div className="mt-5 space-y-4">
-                            {[
-                              ['Communication', postInteractionReport.score?.communication],
-                              ['Resolution', postInteractionReport.score?.resolution],
-                              ['Empathy', postInteractionReport.score?.empathy],
-                              ['Knowledge Usage', postInteractionReport.score?.knowledgeUsage],
-                              ['Tone', postInteractionReport.score?.tone],
-                              ['Clarity', postInteractionReport.score?.clarity],
-                            ].map(([label, value]) => (
-                              <div key={String(label)}>
-                                <div className="flex justify-between text-xs mb-1"><span className="text-slate-400">{label}</span><span className="text-white font-semibold">{Number(value ?? 0)}</span></div>
-                                <div className="h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.max(0, Math.min(100, Number(value ?? 0)))}%` }} /></div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                          <h2 className="text-lg font-semibold text-white">Strengths</h2>
-                          <ul className="mt-4 space-y-3">
-                            {(postInteractionReport.topStrengths || []).map((item) => <li key={item} className="text-sm text-slate-300 flex gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />{item}</li>)}
-                          </ul>
-                        </div>
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                          <h2 className="text-lg font-semibold text-white">Areas to Improve</h2>
-                          <ul className="mt-4 space-y-3">
-                            {(postInteractionReport.topWeaknesses || []).map((item) => <li key={item} className="text-sm text-slate-300 flex gap-2"><AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />{item}</li>)}
-                          </ul>
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                        <h2 className="text-lg font-semibold text-white">Personalized Coaching Recommendations</h2>
-                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {(postInteractionReport.recommendedTrainings || []).map((item) => <div key={item} className="rounded-xl bg-slate-800/70 border border-slate-700 px-4 py-3 text-sm text-slate-200">{item}</div>)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                        <h2 className="text-lg font-semibold text-white">Sentiment Journey</h2>
-                        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="rounded-xl bg-slate-800/60 p-4"><p className="text-xs text-slate-500">Starting</p><p className="text-sm text-white mt-1">{postInteractionReport.startingSentiment?.sentiment || String(postInteractionReport.startingSentiment || 'Neutral')} · {postInteractionReport.startingSentiment?.emotion || ''}</p></div>
-                          <div className="rounded-xl bg-slate-800/60 p-4"><p className="text-xs text-slate-500">Ending</p><p className="text-sm text-white mt-1">{postInteractionReport.endingSentiment?.sentiment || String(postInteractionReport.endingSentiment || 'Neutral')} · {postInteractionReport.endingSentiment?.emotion || ''}</p></div>
-                        </div>
-                        <div className="mt-5 space-y-3">
-                          {(postInteractionReport.timelineEvents || []).map((event) => <div key={event.id ?? `${event.timestamp}-${event.title}`} className="flex gap-3 border-l border-slate-700 pl-4"><div><p className="text-xs text-indigo-400">{event.title || 'Conversation Event'}</p><p className="text-sm text-slate-300 mt-1">{event.description || ''}</p></div></div>)}
-                        </div>
-                      </div>
-
-                      {(postInteractionReport.responseComparisons || []).length > 0 && (
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                          <h2 className="text-lg font-semibold text-white">Response Review</h2>
-                          <div className="mt-5 space-y-4">
-                            {postInteractionReport.responseComparisons.map((comparison) => (
-                              <div key={comparison.turnNumber} className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                                <p className="text-xs font-semibold text-indigo-400">Agent Response {comparison.turnNumber}</p>
-                                <p className="text-xs text-slate-500 mt-3">Original</p>
-                                <p className="text-sm text-slate-300 mt-1">{comparison.originalAgentText}</p>
-                                <p className="text-xs text-slate-500 mt-3">Review</p>
-                                <p className="text-sm text-slate-300 mt-1">{comparison.improvementExplanation}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
 
               {/* ==================================================
                   REPLAY
@@ -2101,6 +1917,15 @@ export default function App() {
               {activeTab ===
                 'replay' && (
                 <ReplayModeView />
+              )}
+
+              {/* ==================================================
+                  PERFORMANCE ANALYTICS
+                  ================================================== */}
+
+              {activeTab ===
+                'team_analytics' && (
+                <PerformanceAnalyticsView />
               )}
             </>
           )}
@@ -2126,6 +1951,24 @@ export default function App() {
           handleAnalyzeManualMessage
         }
       />
+
+      {/* ==========================================================
+          TASK 8: POST-INTERACTION REPORT MODAL
+          ========================================================== */}
+
+      <PostInteractionReportModal
+        isOpen={isSummaryModalOpen}
+        onClose={() => setIsSummaryModalOpen(false)}
+        summary={postInteractionSummary}
+        onNavigateToAnalytics={() => {
+          setActiveTab('team_analytics');
+        }}
+        onStartNewSession={() => {
+          setActiveTab('simulator_setup');
+          setCurrentMode('simulator');
+        }}
+      />
+
 
       {/* ==========================================================
           MOBILE NAVIGATION
