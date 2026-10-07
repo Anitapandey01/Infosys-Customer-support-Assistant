@@ -4,6 +4,7 @@ import {
   Headphones,
   PlayCircle,
   BookOpen,
+  FileText,
   Users2,
   ShieldAlert,
   X,
@@ -83,6 +84,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'knowledge_base' as ActiveTab,
       label: 'Knowledge Base',
       icon: BookOpen,
+      roles: ['employee', 'admin'],
+    },
+    {
+      id: 'reports' as ActiveTab,
+      label: 'Reports',
+      icon: FileText,
       roles: ['employee', 'admin'],
     },
   ];
