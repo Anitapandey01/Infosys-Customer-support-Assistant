@@ -1,0 +1,2098 @@
+import { useCallback, useEffect, useState } from 'react';
+
+import {
+  Headphones,
+  Sparkles,
+  BookOpen,
+  BarChart3,
+  LayoutDashboard,
+} from 'lucide-react';
+
+import { Navbar } from './components/Navbar';
+import { Sidebar, ActiveTab } from './components/Sidebar';
+import { LiveConsoleView } from './components/LiveConsole/LiveConsoleView';
+import { ScenariosView } from './components/ScenariosView';
+import { KnowledgeBaseView } from './components/KnowledgeBaseView';
+import { ReplayModeView } from './components/ReplayModeView';
+import { ManualModeModal } from './components/ManualModeModal';
+import { LoginView } from './components/LoginView';
+import { PolicyManagementView } from './components/PolicyManagementView';
+import { SimulatorSetupView } from './components/SimulatorSetupView';
+import { PerformanceAnalyticsView } from './components/PerformanceAnalyticsView';
+import { PostInteractionReportModal } from './components/PostInteractionReportModal';
+
+import {
+  InteractionMode,
+  UserRole,
+  UserAccount,
+  CoachingLevel,
+  Scenario,
+  ChatMessage,
+  MessageAnalysis,
+  KnowledgeDocument,
+  AgentProfile,
+  DifficultyLevel,
+  SimulatorAnalysis,
+  PostInteractionSummary,
+} from './types';
+
+import {
+  INITIAL_SCENARIOS,
+  INITIAL_KNOWLEDGE_DOCS,
+  INITIAL_USER_PROFILE,
+} from './data/initialData';
+
+import {
+  analyzeTurnApi,
+  simulateCustomerTurnApi,
+  startSimulatorApi,
+  generateScenarioApi,
+  fetchCurrentUserApi,
+  logoutApi,
+  completeSessionApi,
+  generateAdhocSummaryApi,
+} from './services/api';
+
+
+export default function App() {
+  // ============================================================
+  // AUTHENTICATION
+  // ============================================================
+
+  const [currentUser, setCurrentUser] =
+    useState<UserAccount | null>(null);
+
+  const [isAuthLoading, setIsAuthLoading] =
+    useState(true);
+
+  const normalizeUserRole = (
+    role: string
+  ): UserRole => {
+    const normalizedRole =
+      role.trim().toLowerCase();
+
+    if (normalizedRole === 'admin') {
+      return 'admin' as UserRole;
+    }
+
+    if (normalizedRole === 'employee') {
+      return 'employee' as UserRole;
+    }
+
+    return 'user' as UserRole;
+  };
+
+  const applyAuthenticatedUser = (
+    user: UserAccount
+  ) => {
+    const normalizedRole =
+      normalizeUserRole(
+        String(user.role)
+      );
+
+    const normalizedUser = {
+      ...user,
+      role: normalizedRole,
+    } as UserAccount;
+
+    setCurrentUser(
+      normalizedUser
+    );
+
+    setUserRole(
+      normalizedRole
+    );
+  };
+
+  // ============================================================
+  // APPLICATION STATE
+  // ============================================================
+
+  const [activeTab, setActiveTab] =
+    useState<ActiveTab>(
+      'dashboard'
+    );
+
+  const [currentMode, setCurrentMode] =
+    useState<InteractionMode>(
+      'simulator'
+    );
+
+  const [userRole, setUserRole] =
+    useState<UserRole>(
+      'user' as UserRole
+    );
+
+  const [coachingLevel, setCoachingLevel] =
+    useState<CoachingLevel>(
+      'beginner'
+    );
+
+  const [piiMaskingEnabled, setPiiMaskingEnabled] =
+    useState(true);
+
+  const [activeLanguage, setActiveLanguage] =
+    useState('English');
+
+  const [isMobileMenuOpen, setIsMobileMenuOpen] =
+    useState(false);
+
+  // ============================================================
+  // SIMULATOR CONFIGURATION
+  // ============================================================
+
+  const [simulatorConfig, setSimulatorConfig] =
+    useState<{
+      session_label: string;
+      persona: string;
+      initial_emotion: string;
+      scenario: string;
+      issue_severity: number;
+      patience_level: number;
+      expected_resolution: string;
+    } | null>(null);
+
+  // ============================================================
+  // REAL BACKEND SIMULATOR SESSION
+  // ============================================================
+
+  const [simulatorSessionId, setSimulatorSessionId] =
+    useState<string | null>(null);
+
+  const [postInteractionSummary, setPostInteractionSummary] =
+    useState<PostInteractionSummary | null>(null);
+
+  const [isSummaryModalOpen, setIsSummaryModalOpen] =
+    useState<boolean>(false);
+
+
+  // ============================================================
+  // AUTH SESSION RESTORE
+  // ============================================================
+
+  useEffect(() => {
+    fetchCurrentUserApi()
+      .then((user) => {
+        if (user) {
+          applyAuthenticatedUser(user);
+        }
+
+        setIsAuthLoading(false);
+      })
+      .catch(() => {
+        setCurrentUser(null);
+        setIsAuthLoading(false);
+      });
+  }, []);
+
+  // ============================================================
+  // LOGIN
+  // ============================================================
+
+  const handleLoginSuccess = (
+    user: UserAccount
+  ) => {
+    applyAuthenticatedUser(user);
+
+    setActiveTab('dashboard');
+
+    setCurrentMode('simulator');
+
+    setIsMobileMenuOpen(false);
+  };
+
+  // ============================================================
+  // LOGOUT
+  // ============================================================
+
+  const handleLogout = async () => {
+    try {
+      await logoutApi();
+    } catch (error) {
+      console.error(
+        'Logout failed:',
+        error
+      );
+    }
+
+    setCurrentUser(null);
+
+    setActiveTab('dashboard');
+
+    setCurrentMode('simulator');
+
+    setIsMobileMenuOpen(false);
+
+    setSimulatorConfig(null);
+
+    setSimulatorSessionId(null);
+
+    setMessages([]);
+
+    setCurrentAnalysis(undefined);
+
+    setHasActiveSession(false);
+  };
+
+  // ============================================================
+  // DATA
+  // ============================================================
+
+  const [scenarios, setScenarios] =
+    useState<Scenario[]>(
+      INITIAL_SCENARIOS
+    );
+
+  const [knowledgeDocs, setKnowledgeDocs] =
+    useState<KnowledgeDocument[]>(
+      INITIAL_KNOWLEDGE_DOCS
+    );
+
+  const [userProfile, setUserProfile] =
+    useState<AgentProfile>(
+      INITIAL_USER_PROFILE
+    );
+
+  // ============================================================
+  // ACTIVE SESSION
+  // ============================================================
+
+  const [activeScenario, setActiveScenario] =
+    useState<Scenario>(
+      INITIAL_SCENARIOS[0]
+    );
+
+  const [messages, setMessages] =
+    useState<ChatMessage[]>(
+      []
+    );
+
+  const [currentAnalysis, setCurrentAnalysis] =
+    useState<MessageAnalysis | undefined>(
+      undefined
+    );
+
+  const [isAnalyzing, setIsAnalyzing] =
+    useState(false);
+
+  const [isSimulatingCustomer, setIsSimulatingCustomer] =
+    useState(false);
+
+  const [inputText, setInputText] =
+    useState('');
+
+  const [isImprovingInput, setIsImprovingInput] =
+    useState(false);
+
+  const [sessionStartTime, setSessionStartTime] =
+    useState<number>(
+      Date.now()
+    );
+
+  const [hasActiveSession, setHasActiveSession] =
+    useState(false);
+
+  const [isManualModalOpen, setIsManualModalOpen] =
+    useState(false);
+
+  // ============================================================
+  // TYPE NORMALIZATION
+  // ============================================================
+
+  /*
+   * SimulatorAnalysis and MessageAnalysis contain the same
+   * Task 4 core analysis fields.
+   *
+   * MessageAnalysis also has an index signature because it
+   * supports additional backend analysis fields.
+   *
+   * This adapter keeps the backend response unchanged while
+   * making it compatible with the ChatMessage type.
+   */
+  const normalizeSimulatorAnalysis = (
+    analysis: SimulatorAnalysis,
+    escalation?: unknown
+  ): MessageAnalysis => {
+    /*
+     * IMPORTANT:
+     * The simulator backend is the source of truth for Tasks 4–6.
+     *
+     * Do not rebuild or selectively copy the analysis object here.
+     * The old implementation copied only the seven Task-4 fields and
+     * silently discarded Task-5 RAG recommendations and Task-6 risk
+     * metadata (including Critical escalation).
+     *
+     * Keep every backend field while normalising only the legacy aliases
+     * used by older UI components.
+     */
+    const backendAnalysis = analysis as MessageAnalysis;
+
+    const analysisRecord =
+      analysis && typeof analysis === 'object'
+        ? (analysis as Record<string, unknown>)
+        : {};
+
+    // Task 6 may be returned either as the simulator response's
+    // top-level `escalation` object or nested inside `analysis`.
+    // Accept both shapes so the UI never silently converts a real
+    // backend score into 0.
+    const backendEscalationSource =
+      escalation && typeof escalation === 'object'
+        ? escalation
+        : analysisRecord.escalation;
+
+    const backendEscalation =
+      backendEscalationSource &&
+      typeof backendEscalationSource === 'object'
+        ? (backendEscalationSource as Record<string, unknown>)
+        : null;
+
+    return {
+      ...backendAnalysis,
+
+      // ========================================================
+      // TASK 6 - ESCALATION RISK METADATA
+      // ========================================================
+      // The simulator response keeps Task 6 in a separate
+      // `escalation` object. Flatten only these display fields
+      // into the analysis object so the existing LiveConsole UI
+      // can consume them without changing the Task 4 structure.
+      escalation_risk_score:
+        backendEscalation &&
+        backendEscalation.risk_score !== undefined &&
+        backendEscalation.risk_score !== null
+          ? Number(backendEscalation.risk_score)
+          : undefined,
+
+      escalation_risk_threshold:
+        backendEscalation &&
+        backendEscalation.risk_threshold !== undefined &&
+        backendEscalation.risk_threshold !== null
+          ? Number(backendEscalation.risk_threshold)
+          : 7,
+
+      critical_threshold:
+        backendEscalation &&
+        backendEscalation.critical_threshold !== undefined &&
+        backendEscalation.critical_threshold !== null
+          ? Number(backendEscalation.critical_threshold)
+          : 9,
+
+      escalation_reasons:
+        backendEscalation && Array.isArray(backendEscalation.reasons)
+          ? backendEscalation.reasons.filter(
+              (reason): reason is string =>
+                typeof reason === 'string'
+            )
+          : [],
+
+      escalation_recommended_action:
+        String(
+          backendEscalation?.recommended_action ??
+            ''
+        ),
+
+      escalation_alert:
+        Boolean(backendEscalation?.alert),
+
+      escalation_critical_alert:
+        Boolean(backendEscalation?.critical_alert),
+
+      intent:
+        backendAnalysis.intent ?? 'Unknown',
+
+      emotion:
+        backendAnalysis.emotion ?? 'Unknown',
+
+      sentiment:
+        backendAnalysis.sentiment ?? 'Neutral',
+
+      frustration_level:
+        Number(
+          backendAnalysis.frustration_level ??
+          backendAnalysis.frustrationLevel ??
+          0
+        ),
+
+      satisfaction_trend:
+        backendAnalysis.satisfaction_trend ?? 'Stable',
+
+      escalation_risk:
+        (backendAnalysis.escalation_risk ??
+          backendAnalysis.escalationLevel ??
+          'Low') as MessageAnalysis['escalation_risk'],
+
+      confidence:
+        Number(
+          backendAnalysis.confidence ??
+          backendAnalysis.intentConfidence ??
+          0
+        ),
+
+      escalationRisk:
+        backendEscalation && backendEscalation.risk_score !== undefined
+          ? Math.round(Number(backendEscalation.risk_score) * 10)
+          : backendAnalysis.escalation_risk_score !== undefined
+            ? Math.round(Number(backendAnalysis.escalation_risk_score) * 10)
+            : 0,
+
+      escalationLevel:
+        String(backendEscalation?.risk_level ?? backendAnalysis.escalation_risk ?? 'Low').toLowerCase(),
+
+      riskReasons:
+        backendEscalation && Array.isArray(backendEscalation.reasons)
+          ? backendEscalation.reasons.filter(
+              (reason): reason is string => typeof reason === 'string'
+            )
+          : Array.isArray(backendAnalysis.escalation_reasons)
+            ? (backendAnalysis.escalation_reasons as string[])
+            : [],
+
+      recommendedIntervention:
+        String(
+          backendEscalation?.recommended_action ??
+            backendAnalysis.escalation_recommended_action ??
+            ''
+        ),
+
+      relevantKnowledge:
+        (backendAnalysis.knowledge_recommendations?.[0] || (backendAnalysis as any).relevantKnowledge)
+          ? {
+              kbId: String(backendAnalysis.knowledge_recommendations?.[0]?.doc_id || 'KB-101'),
+              title: String(backendAnalysis.knowledge_recommendations?.[0]?.title || 'Support Policy'),
+              policySnippet: String(backendAnalysis.knowledge_recommendations?.[0]?.content || ''),
+              source: String(backendAnalysis.knowledge_recommendations?.[0]?.source || backendAnalysis.knowledge_recommendations?.[0]?.title || 'Support Policy'),
+              confidence: Math.round((1.0 - Math.min(1.0, Number(backendAnalysis.knowledge_recommendations?.[0]?.distance ?? 0.15))) * 100),
+              troubleshootingSteps: [
+                'Verify account details and transaction history.',
+                'Confirm policy eligibility and calculate accurate amounts.',
+                'Communicate outcome with clear next steps and timeline.'
+              ]
+            }
+          : undefined,
+
+      intentConfidence:
+        backendAnalysis.intentConfidence ??
+        backendAnalysis.confidence,
+
+      sentimentConfidence:
+        backendAnalysis.sentimentConfidence ??
+        backendAnalysis.confidence,
+
+      frustrationLevel:
+        backendAnalysis.frustrationLevel ??
+        backendAnalysis.frustration_level,
+    };
+  };
+
+  // Prevent unused-state compiler/linter problems
+  void simulatorConfig;
+  void sessionStartTime;
+
+  // ============================================================
+  // START EXISTING LOCAL SCENARIO SESSION
+  // ============================================================
+
+  const handleStartScenario = useCallback(
+    (scenario: Scenario) => {
+      setActiveScenario(scenario);
+
+      const openingMsg: ChatMessage = {
+        id: `msg-${Date.now()}-cust-0`,
+
+        sender: 'customer',
+
+        text: scenario.customerOpeningMessage,
+
+        timestamp: new Date().toLocaleTimeString(
+          [],
+          {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }
+        ),
+
+        customerState: {
+          frustration:
+            Number(
+              scenario.customerPersona
+                .baseFrustration
+            ),
+
+          trust:
+            Number(
+              scenario.customerPersona
+                .trust
+            ),
+
+          patience:
+            Number(
+              scenario.customerPersona
+                .patience
+            ),
+
+          satisfaction:
+            Number(
+              scenario.customerPersona
+                .satisfaction
+            ),
+
+          escalationIntent:
+            Number(
+              scenario.customerPersona
+                .escalationIntent
+            ),
+        },
+      };
+
+      setMessages([
+        openingMsg,
+      ]);
+
+      setInputText('');
+
+      setSessionStartTime(
+        Date.now()
+      );
+
+      setHasActiveSession(true);
+
+      /*
+       * This is the existing local scenario flow.
+       *
+       * It is separate from the configured backend
+       * simulator session.
+       */
+      setSimulatorSessionId(null);
+
+      setActiveTab(
+        'live_console'
+      );
+
+      setCurrentMode(
+        'simulator'
+      );
+
+      setIsAnalyzing(true);
+
+      analyzeTurnApi({
+        customerMessage:
+          scenario.customerOpeningMessage,
+
+        conversationHistory: [
+          openingMsg,
+        ],
+
+        scenario,
+
+        knowledgeDocs,
+      })
+        .then((analysis) => {
+          setCurrentAnalysis(
+            analysis
+          );
+        })
+        .catch((error) => {
+          console.error(
+            'Initial turn analysis failed:',
+            error
+          );
+
+          setCurrentAnalysis(
+            undefined
+          );
+        })
+        .finally(() => {
+          setIsAnalyzing(false);
+        });
+    },
+    [knowledgeDocs]
+  );
+
+  // ============================================================
+  // START CONFIGURED REAL BACKEND SIMULATOR
+  // ============================================================
+
+  const handleStartConfiguredSimulation =
+    async (
+      config: {
+        session_label?: string;
+        persona: string;
+        initial_emotion: string;
+        scenario: string;
+        issue_severity: number;
+        patience_level: number;
+        expected_resolution: string;
+      }
+    ) => {
+      const backendConfig = {
+        session_label:
+          config.session_label ||
+          `Simulator-${Date.now()}`,
+
+        persona:
+          config.persona,
+
+        initial_emotion:
+          config.initial_emotion,
+
+        scenario:
+          config.scenario,
+
+        issue_severity:
+          config.issue_severity,
+
+        patience_level:
+          config.patience_level,
+
+        expected_resolution:
+          config.expected_resolution,
+      };
+
+      setSimulatorConfig(
+        backendConfig
+      );
+
+      setSimulatorSessionId(null);
+
+      setMessages([]);
+
+      setCurrentAnalysis(undefined);
+
+      setIsSimulatingCustomer(true);
+
+      setIsAnalyzing(false);
+
+      try {
+        /*
+         * REAL BACKEND
+         *
+         * POST /simulator/start
+         *
+         * IMPORTANT:
+         * The backend Task 4 analysis is returned
+         * directly in result.analysis.
+         */
+
+        const result =
+          await startSimulatorApi(
+            backendConfig
+          );
+
+        console.log(
+          'Simulator session started:',
+          result
+        );
+
+        setSimulatorSessionId(
+          result.session_id
+        );
+
+        // --------------------------------------------------------
+        // CUSTOMER OPENING MESSAGE
+        // --------------------------------------------------------
+
+        const openingMsg: ChatMessage = {
+          id: `msg-${Date.now()}-cust-0`,
+
+          sender: 'customer',
+
+          text:
+            result.customer_message,
+
+          timestamp:
+            new Date().toLocaleTimeString(
+              [],
+              {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              }
+            ),
+
+          /*
+           * IMPORTANT:
+           * Task 4 analysis comes directly from backend.
+           */
+          analysis:
+            normalizeSimulatorAnalysis(
+              result.analysis,
+              (result as { escalation?: unknown })
+                .escalation ??
+                (result.analysis as unknown as { escalation?: unknown })
+                  .escalation
+            ),
+
+          customerState: {
+            frustration:
+              Number(
+                result.state.frustration
+              ),
+
+            trust:
+              Number(
+                result.state.trust
+              ),
+
+            patience:
+              Number(
+                result.state.patience
+              ),
+
+            satisfaction:
+              Number(
+                result.state.satisfaction
+              ),
+
+            escalationIntent:
+              Number(
+                result.state
+                  .escalation_intent
+              ),
+          },
+        };
+
+        setMessages([
+          openingMsg,
+        ]);
+
+        setInputText('');
+
+        setSessionStartTime(
+          Date.now()
+        );
+
+        setHasActiveSession(true);
+
+        // --------------------------------------------------------
+        // MATCH FRONTEND SCENARIO IF AVAILABLE
+        // --------------------------------------------------------
+
+        const matchedScenario =
+          scenarios.find(
+            (item) =>
+              item.id
+                .toLowerCase()
+                .includes(
+                  config.scenario
+                    .toLowerCase()
+                ) ||
+              item.title
+                .toLowerCase()
+                .includes(
+                  config.scenario
+                    .toLowerCase()
+                )
+          );
+
+        if (matchedScenario) {
+          setActiveScenario(
+            matchedScenario
+          );
+        }
+
+        /*
+         * ========================================================
+         * TASK 4 ANALYSIS
+         * ========================================================
+         *
+         * DO NOT build analysis from simulator state.
+         *
+         * The backend already calculates:
+         *
+         * - intent
+         * - emotion
+         * - sentiment
+         * - frustration_level
+         * - satisfaction_trend
+         * - escalation_risk
+         * - confidence
+         *
+         * Therefore the backend response is the
+         * single source of truth.
+         */
+
+        setCurrentAnalysis(
+          normalizeSimulatorAnalysis(
+            result.analysis,
+            (result as { escalation?: unknown })
+              .escalation
+          )
+        );
+
+        setCurrentMode(
+          'simulator'
+        );
+
+        setActiveTab(
+          'live_console'
+        );
+      } catch (error) {
+        console.error(
+          'Failed to start simulator session:',
+          error
+        );
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Failed to start simulator session.';
+
+        window.alert(message);
+
+        setSimulatorSessionId(null);
+
+        setHasActiveSession(false);
+
+        setMessages([]);
+
+        setCurrentAnalysis(
+          undefined
+        );
+      } finally {
+        setIsSimulatingCustomer(
+          false
+        );
+
+        setIsAnalyzing(false);
+      }
+    };
+
+  // ============================================================
+  // LIVE CONVERSATION
+  // ============================================================
+
+  const handleSendMessage = async (
+    text: string
+  ) => {
+    if (
+      !text.trim() ||
+      isSimulatingCustomer
+    ) {
+      return;
+    }
+
+    if (!simulatorSessionId) {
+      console.error(
+        'Cannot send simulator response: no active backend simulator session.'
+      );
+
+      window.alert(
+        'The simulator session is not active. Please start a new simulation.'
+      );
+
+      return;
+    }
+
+    const trimmedText =
+      text.trim();
+
+    // ----------------------------------------------------------
+    // AGENT MESSAGE
+    // ----------------------------------------------------------
+
+    const agentMsg: ChatMessage = {
+      id: `msg-${Date.now()}-agent`,
+
+      sender: 'agent',
+
+      text:
+        trimmedText,
+
+      timestamp:
+        new Date().toLocaleTimeString(
+          [],
+          {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }
+        ),
+    };
+
+    const updatedHistory = [
+      ...messages,
+      agentMsg,
+    ];
+
+    setMessages(
+      updatedHistory
+    );
+
+    setInputText('');
+
+    setIsSimulatingCustomer(true);
+
+    try {
+      /*
+       * REAL BACKEND
+       *
+       * POST /simulator/message
+       *
+       * The backend:
+       *
+       * 1. receives agent response
+       * 2. generates next customer message
+       * 3. analyzes customer message using Task 4
+       * 4. returns analysis
+       */
+
+      const simResult =
+        await simulateCustomerTurnApi({
+          sessionId:
+            simulatorSessionId,
+
+          agentResponse:
+            trimmedText,
+        });
+
+      // ----------------------------------------------------------
+      // NEXT CUSTOMER MESSAGE
+      // ----------------------------------------------------------
+
+      const nextCustMsg: ChatMessage = {
+        id: `msg-${Date.now()}-cust`,
+
+        sender: 'customer',
+
+        text:
+          simResult.customer_message,
+
+        timestamp:
+          new Date().toLocaleTimeString(
+            [],
+            {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            }
+          ),
+
+        /*
+         * Backend Task 4 analysis is attached
+         * directly to this customer message.
+         */
+        analysis:
+          normalizeSimulatorAnalysis(
+            simResult.analysis,
+            (simResult as { escalation?: unknown })
+              .escalation
+          ),
+
+        customerState: {
+          frustration:
+            Number(
+              simResult.state.frustration
+            ),
+
+          trust:
+            Number(
+              simResult.state.trust
+            ),
+
+          patience:
+            Number(
+              simResult.state.patience
+            ),
+
+          satisfaction:
+            Number(
+              simResult.state.satisfaction
+            ),
+
+          escalationIntent:
+            Number(
+              simResult.state
+                .escalation_intent
+            ),
+        },
+      };
+
+      const fullHistory = [
+        ...updatedHistory,
+        nextCustMsg,
+      ];
+
+      setMessages(
+        fullHistory
+      );
+
+      /*
+       * ========================================================
+       * TASK 4 ANALYSIS
+       * ========================================================
+       *
+       * IMPORTANT:
+       *
+       * Do NOT call buildSimulatorAnalysis().
+       *
+       * Do NOT derive intent from scenario category.
+       *
+       * Do NOT convert simulator frustration into
+       * percentages.
+       *
+       * Do NOT derive escalation risk from
+       * escalation_intent percentage.
+       *
+       * The backend has already performed Task 4 analysis.
+       */
+
+      setCurrentAnalysis(
+        normalizeSimulatorAnalysis(
+          simResult.analysis,
+          (simResult as { escalation?: unknown })
+            .escalation ??
+            (simResult.analysis as unknown as { escalation?: unknown })
+              .escalation
+        )
+      );
+
+      // ----------------------------------------------------------
+      // BACKEND SESSION STATUS
+      // ----------------------------------------------------------
+
+      if (
+        simResult.is_resolved ||
+        simResult.is_escalated
+      ) {
+        console.log(
+          'Simulator session state:',
+          {
+            resolved:
+              simResult.is_resolved,
+
+            escalated:
+              simResult.is_escalated,
+
+            turn:
+              simResult.turn,
+          }
+        );
+      }
+    } catch (error) {
+      console.error(
+        'Error during customer simulation turn:',
+        error
+      );
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to generate the next customer response.';
+
+      window.alert(message);
+    } finally {
+      setIsSimulatingCustomer(
+        false
+      );
+
+      setIsAnalyzing(false);
+    }
+  };
+
+  // ============================================================
+  // AI RESPONSE IMPROVEMENT
+  // ============================================================
+
+  const handleTriggerAiImprove =
+    async () => {
+      if (!inputText.trim()) {
+        return;
+      }
+
+      setIsImprovingInput(true);
+
+      try {
+        /*
+         * Task 4 analysis does not contain
+         * suggestedResponses.
+         *
+         * Therefore we do not read:
+         *
+         * currentAnalysis.suggestedResponses
+         *
+         * Instead, provide a simple response
+         * improvement based on the actual Task 4
+         * analysis fields.
+         */
+
+        if (
+          currentAnalysis?.escalation_risk ===
+          'High'
+        ) {
+          setInputText(
+            'I understand this is frustrating. I will take care of this and clearly explain the next steps for you.'
+          );
+        } else if (
+          currentAnalysis?.emotion ===
+          'confused'
+        ) {
+          setInputText(
+            'I understand. Let me explain the next steps clearly and help you through the process.'
+          );
+        } else if (
+          currentAnalysis?.sentiment ===
+          'Negative'
+        ) {
+          setInputText(
+            'I understand your concern, and I apologize for the inconvenience. Let me check the details and help resolve this for you.'
+          );
+        } else {
+          setInputText(
+            'I understand your concern. Let me check the details and help you with the next steps.'
+          );
+        }
+      } finally {
+        setIsImprovingInput(false);
+      }
+    };
+
+  // ============================================================
+  // FINISH SESSION
+  // ============================================================
+
+  const handleFinishSession =
+    async () => {
+      try {
+        if (simulatorSessionId) {
+          const summary = await completeSessionApi(simulatorSessionId);
+          setPostInteractionSummary(summary);
+          setIsSummaryModalOpen(true);
+        } else if (messages.length > 0) {
+          const summary = await generateAdhocSummaryApi({
+            messages,
+            scenarioTitle: activeScenario?.title || 'Customer Support Session',
+          });
+          setPostInteractionSummary(summary);
+          setIsSummaryModalOpen(true);
+        }
+      } catch (error) {
+        console.error(
+          'Error completing session and generating summary:',
+          error
+        );
+      } finally {
+        setHasActiveSession(false);
+
+        setSimulatorSessionId(null);
+
+        setSimulatorConfig(null);
+
+        setMessages([]);
+
+        setCurrentAnalysis(undefined);
+
+        setInputText('');
+      }
+    };
+
+
+  // ============================================================
+  // AI SCENARIO GENERATION
+  // ============================================================
+
+  const handleGenerateAiScenario =
+    async (
+      prompt: string,
+      category: string,
+      difficulty: DifficultyLevel
+    ): Promise<Scenario | null> => {
+      return await generateScenarioApi({
+        prompt,
+        category,
+        difficulty,
+      });
+    };
+
+  // ============================================================
+  // MANUAL MODE
+  // ============================================================
+
+  const handleAnalyzeManualMessage =
+    async (
+      msg: string
+    ): Promise<MessageAnalysis | null> => {
+      return await analyzeTurnApi({
+        customerMessage:
+          msg,
+
+        conversationHistory:
+          [],
+
+        scenario:
+          activeScenario,
+
+        knowledgeDocs,
+      });
+    };
+
+  // ============================================================
+  // ROLE AUTHORIZATION
+  // ============================================================
+
+  const isTabAuthorized = (
+    role: UserRole,
+    tab: ActiveTab
+  ): boolean => {
+    const normalizedRole =
+      String(role).toLowerCase();
+
+    if (
+      normalizedRole ===
+      'admin'
+    ) {
+      return true;
+    }
+
+    if (
+      normalizedRole ===
+      'employee'
+    ) {
+      return [
+        'dashboard',
+        'simulator_setup',
+        'live_console',
+        'replay',
+        'knowledge_base',
+        'team_analytics',
+      ].includes(tab);
+    }
+
+
+    if (
+      normalizedRole ===
+      'user'
+    ) {
+      return [
+        'dashboard',
+        'simulator_setup',
+        'live_console',
+        'replay',
+      ].includes(tab);
+    }
+
+    return false;
+  };
+
+  // ============================================================
+  // MODE CARDS
+  // ============================================================
+
+  const renderModeCards = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+      <button
+        type="button"
+        onClick={() => {
+          setCurrentMode(
+            'simulator'
+          );
+
+          setActiveTab(
+            'simulator_setup'
+          );
+
+          setSimulatorConfig(
+            null
+          );
+
+          setSimulatorSessionId(
+            null
+          );
+
+          setCurrentAnalysis(
+            undefined
+          );
+
+          setMessages([]);
+
+          setHasActiveSession(
+            false
+          );
+        }}
+        className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 transition"
+      >
+        <div className="w-11 h-11 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-5">
+          <Headphones className="w-5 h-5" />
+        </div>
+
+        <h2 className="text-lg font-bold text-white">
+          Simulator
+        </h2>
+
+        <p className="text-sm text-slate-400 mt-2">
+          Practice with an AI-generated customer
+          conversation.
+        </p>
+
+        <span className="inline-block mt-5 text-xs font-semibold text-indigo-400">
+          Start Simulator →
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setCurrentMode(
+            'manual'
+          );
+
+          setIsManualModalOpen(
+            true
+          );
+        }}
+        className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 transition"
+      >
+        <div className="w-11 h-11 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-5">
+          <Sparkles className="w-5 h-5" />
+        </div>
+
+        <h2 className="text-lg font-bold text-white">
+          Manual Mode
+        </h2>
+
+        <p className="text-sm text-slate-400 mt-2">
+          Enter a customer message and receive
+          AI guidance.
+        </p>
+
+        <span className="inline-block mt-5 text-xs font-semibold text-emerald-400">
+          Open Manual Mode →
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setCurrentMode(
+            'replay'
+          );
+
+          setActiveTab(
+            'replay'
+          );
+        }}
+        className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 transition"
+      >
+        <div className="w-11 h-11 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center mb-5">
+          <BarChart3 className="w-5 h-5" />
+        </div>
+
+        <h2 className="text-lg font-bold text-white">
+          Replay
+        </h2>
+
+        <p className="text-sm text-slate-400 mt-2">
+          Review support conversations and coaching
+          results.
+        </p>
+
+        <span className="inline-block mt-5 text-xs font-semibold text-amber-400">
+          Open Replay →
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setActiveTab(
+            'team_analytics'
+          );
+        }}
+        className="text-left p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 transition"
+      >
+        <div className="w-11 h-11 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-5">
+          <BarChart3 className="w-5 h-5" />
+        </div>
+
+        <h2 className="text-lg font-bold text-white">
+          Performance Analytics
+        </h2>
+
+        <p className="text-sm text-slate-400 mt-2">
+          Review resolution quality, customer sentiment trends, and agent improvement data.
+        </p>
+
+        <span className="inline-block mt-5 text-xs font-semibold text-purple-400">
+          Open Analytics →
+        </span>
+      </button>
+    </div>
+  );
+
+
+  // ============================================================
+  // LOADING
+  // ============================================================
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-600 animate-pulse mx-auto flex items-center justify-center font-bold text-lg">
+            CSA
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Loading system session...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // LOGIN
+  // ============================================================
+
+  if (!currentUser) {
+    return (
+      <LoginView
+        onLoginSuccess={
+          handleLoginSuccess
+        }
+      />
+    );
+  }
+
+  const currentRole =
+    String(
+      currentUser.role
+    ).toLowerCase();
+
+  // ============================================================
+  // MAIN APPLICATION
+  // ============================================================
+
+  return (
+    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+      <Navbar
+        currentMode={
+          currentMode
+        }
+
+        onSelectMode={
+          setCurrentMode
+        }
+
+        userRole={
+          currentUser.role
+        }
+
+        onChangeRole={
+          setUserRole
+        }
+
+        coachingLevel={
+          coachingLevel
+        }
+
+        onChangeCoachingLevel={
+          setCoachingLevel
+        }
+
+        userProfile={
+          userProfile
+        }
+
+        piiMaskingEnabled={
+          piiMaskingEnabled
+        }
+
+        onTogglePiiMasking={() =>
+          setPiiMaskingEnabled(
+            (previous) =>
+              !previous
+          )
+        }
+
+        activeLanguage={
+          activeLanguage
+        }
+
+        onChangeLanguage={
+          setActiveLanguage
+        }
+
+        onOpenQuickManual={() =>
+          setIsManualModalOpen(
+            true
+          )
+        }
+
+        isMobileMenuOpen={
+          isMobileMenuOpen
+        }
+
+        onToggleMobileMenu={() =>
+          setIsMobileMenuOpen(
+            (previous) =>
+              !previous
+          )
+        }
+
+        currentUser={
+          currentUser
+        }
+
+        onLogout={
+          handleLogout
+        }
+      />
+
+      <div className="flex-1 min-h-0 flex overflow-hidden max-w-7xl w-full mx-auto px-0 sm:px-4 lg:px-8 py-0 sm:py-3 gap-4">
+        {currentRole !== 'user' && (
+          <Sidebar
+            activeTab={
+              activeTab
+            }
+
+            onSelectTab={(tab) => {
+              if (
+                tab ===
+                'manual_mode'
+              ) {
+                setCurrentMode(
+                  'manual'
+                );
+
+                setIsManualModalOpen(
+                  true
+                );
+              } else {
+                setActiveTab(
+                  tab
+                );
+
+                if (
+                  tab ===
+                  'simulator_setup'
+                ) {
+                  setCurrentMode(
+                    'simulator'
+                  );
+                }
+
+                if (
+                  tab ===
+                  'replay'
+                ) {
+                  setCurrentMode(
+                    'replay'
+                  );
+                }
+              }
+
+              setIsMobileMenuOpen(
+                false
+              );
+            }}
+
+            userRole={
+              currentUser.role
+            }
+
+            activeScenarioTitle={
+              activeScenario?.title
+            }
+
+            hasActiveSession={
+              hasActiveSession
+            }
+
+            isMobileOpen={
+              isMobileMenuOpen
+            }
+
+            onCloseMobile={() =>
+              setIsMobileMenuOpen(
+                false
+              )
+            }
+          />
+        )}
+
+        <main
+          className={`flex-1 min-h-0 flex flex-col rounded-2xl ${
+            activeTab === 'live_console'
+              ? 'overflow-hidden'
+              : 'overflow-y-auto bg-slate-950/90'
+          }`}
+        >
+          {!isTabAuthorized(
+            currentUser.role,
+            activeTab
+          ) ? (
+            <div className="p-12 text-center bg-slate-900 border border-slate-800 rounded-2xl max-w-md mx-auto my-12 space-y-4 shadow-2xl">
+              <div className="w-16 h-16 bg-rose-500/10 text-rose-400 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/20 font-bold text-xl">
+                403
+              </div>
+
+              <h2 className="text-xl font-bold text-white">
+                Access Forbidden
+              </h2>
+
+              <p className="text-xs text-slate-400">
+                Your account does not have
+                permission to view this section.
+              </p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveTab(
+                    'dashboard'
+                  )
+                }
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-500 transition"
+              >
+                Return to Dashboard
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* ==================================================
+                  DASHBOARD
+                  ================================================== */}
+
+              {activeTab ===
+                'dashboard' && (
+                <div className="p-6 sm:p-8 space-y-8">
+                  <div>
+                    <p className="text-xs uppercase tracking-widest text-indigo-400 font-semibold">
+                      Customer Support Assistant
+                    </p>
+
+                    <h1 className="text-3xl font-bold text-white mt-2">
+                      Welcome,{' '}
+                      {currentUser.name ||
+                        currentUser.email}
+                    </h1>
+
+                    <p className="text-sm text-slate-400 mt-2">
+                      Choose a support mode to
+                      continue.
+                    </p>
+                  </div>
+
+                  {renderModeCards()}
+
+                  {currentRole ===
+                    'employee' && (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                      <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
+                          <BookOpen className="w-5 h-5" />
+                        </div>
+
+                        <div>
+                          <h3 className="font-semibold text-white">
+                            Knowledge Base
+                            Access
+                          </h3>
+
+                          <p className="text-sm text-slate-400 mt-1">
+                            You can read support
+                            knowledge and policies.
+                            Document management is
+                            restricted to administrators.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentRole ===
+                    'admin' && (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                      <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
+                          <BookOpen className="w-5 h-5" />
+                        </div>
+
+                        <div>
+                          <h3 className="font-semibold text-white">
+                            Knowledge Base
+                            Management
+                          </h3>
+
+                          <p className="text-sm text-slate-400 mt-1">
+                            You have full access to
+                            knowledge documents,
+                            uploads, management and
+                            document history.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ==================================================
+                  SIMULATOR SETUP
+                  ================================================== */}
+
+              {activeTab ===
+                'simulator_setup' && (
+                <SimulatorSetupView
+                  onBack={() =>
+                    setActiveTab(
+                      'dashboard'
+                    )
+                  }
+
+                  onStartSimulation={
+                    handleStartConfiguredSimulation
+                  }
+                />
+              )}
+
+              {/* ==================================================
+                  LIVE CONSOLE
+                  ================================================== */}
+
+              {activeTab ===
+                'live_console' && (
+                <LiveConsoleView
+                  scenario={
+                    activeScenario
+                  }
+
+                  messages={
+                    messages
+                  }
+
+                  onSendMessage={
+                    handleSendMessage
+                  }
+
+                  isSimulatingCustomer={
+                    isSimulatingCustomer
+                  }
+
+                  analysis={
+                    currentAnalysis
+                  }
+
+                  isAnalyzing={
+                    isAnalyzing
+                  }
+
+                  coachingLevel={
+                    coachingLevel
+                  }
+
+                  onFinishSession={
+                    handleFinishSession
+                  }
+
+                  onRestartSession={() =>
+                    handleStartScenario(
+                      activeScenario
+                    )
+                  }
+
+                  onSelectAnotherScenario={() => {
+                    setSimulatorSessionId(
+                      null
+                    );
+
+                    setHasActiveSession(
+                      false
+                    );
+
+                    setMessages([]);
+
+                    setCurrentAnalysis(
+                      undefined
+                    );
+
+                    setActiveTab(
+                      'simulator_setup'
+                    );
+                  }}
+
+                  piiMaskingEnabled={
+                    piiMaskingEnabled
+                  }
+
+                  onTriggerAiImprove={
+                    handleTriggerAiImprove
+                  }
+
+                  isImprovingInput={
+                    isImprovingInput
+                  }
+
+                  inputText={
+                    inputText
+                  }
+
+                  setInputText={
+                    setInputText
+                  }
+
+                  onOpenFullKb={() =>
+                    setActiveTab(
+                      'knowledge_base'
+                    )
+                  }
+
+                  knowledgeDocs={
+                    knowledgeDocs
+                  }
+                />
+              )}
+
+              {/* ==================================================
+                  SCENARIOS
+                  ================================================== */}
+
+              {activeTab ===
+                'scenarios' && (
+                <ScenariosView
+                  scenarios={
+                    scenarios
+                  }
+
+                  onStartScenario={
+                    handleStartScenario
+                  }
+
+                  onAddNewScenario={(
+                    newScenario
+                  ) => {
+                    setScenarios(
+                      (previous) => [
+                        newScenario,
+                        ...previous,
+                      ]
+                    );
+
+                    handleStartScenario(
+                      newScenario
+                    );
+                  }}
+
+                  userRole={
+                    currentUser.role
+                  }
+
+                  onGenerateAiScenario={
+                    handleGenerateAiScenario
+                  }
+                />
+              )}
+
+              {/* ==================================================
+                  KNOWLEDGE BASE
+                  ================================================== */}
+
+              {activeTab ===
+                'knowledge_base' &&
+                currentRole ===
+                  'admin' && (
+                  <PolicyManagementView />
+                )}
+
+              {activeTab ===
+                'knowledge_base' &&
+                (currentRole === 'employee' || currentRole === 'admin') && (
+                  <KnowledgeBaseView
+                    documents={
+                      knowledgeDocs
+                    }
+                    onAddDocument={(newDoc) => {
+                      setKnowledgeDocs((prev) => [newDoc, ...prev]);
+                    }}
+                    userRole={currentRole}
+                  />
+                )}
+
+              {/* ==================================================
+                  REPLAY
+                  ================================================== */}
+
+              {activeTab ===
+                'replay' && (
+                <ReplayModeView />
+              )}
+
+              {/* ==================================================
+                  PERFORMANCE ANALYTICS
+                  ================================================== */}
+
+              {activeTab ===
+                'team_analytics' && (
+                <PerformanceAnalyticsView />
+              )}
+            </>
+          )}
+        </main>
+      </div>
+
+      {/* ==========================================================
+          MANUAL MODE
+          ========================================================== */}
+
+      <ManualModeModal
+        isOpen={
+          isManualModalOpen
+        }
+
+        onClose={() =>
+          setIsManualModalOpen(
+            false
+          )
+        }
+
+        onAnalyzeMessage={
+          handleAnalyzeManualMessage
+        }
+      />
+
+      {/* ==========================================================
+          TASK 8: POST-INTERACTION REPORT MODAL
+          ========================================================== */}
+
+      <PostInteractionReportModal
+        isOpen={isSummaryModalOpen}
+        onClose={() => setIsSummaryModalOpen(false)}
+        summary={postInteractionSummary}
+        onNavigateToAnalytics={() => {
+          setActiveTab('team_analytics');
+        }}
+        onStartNewSession={() => {
+          setActiveTab('simulator_setup');
+          setCurrentMode('simulator');
+        }}
+      />
+
+
+      {/* ==========================================================
+          MOBILE NAVIGATION
+          ========================================================== */}
+
+      {currentRole !==
+        'user' && (
+        <nav
+          aria-label="Mobile Navigation"
+          className="sm:hidden bg-slate-900 border-t border-slate-800 px-2 py-1.5 flex items-center justify-around z-30 shrink-0 shadow-xl"
+        >
+          <button
+            type="button"
+            id="mob-nav-dashboard"
+            onClick={() => {
+              setActiveTab(
+                'dashboard'
+              );
+
+              setIsMobileMenuOpen(
+                false
+              );
+            }}
+            className={`flex flex-col items-center justify-center p-1.5 rounded-lg transition text-[10px] min-w-[56px] ${
+              activeTab ===
+              'dashboard'
+                ? 'text-indigo-400 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4 mb-0.5" />
+
+            <span>
+              Home
+            </span>
+          </button>
+
+          <button
+            type="button"
+            id="mob-nav-simulator"
+            onClick={() => {
+              setActiveTab(
+                'simulator_setup'
+              );
+
+              setCurrentMode(
+                'simulator'
+              );
+
+              setIsMobileMenuOpen(
+                false
+              );
+            }}
+            className={`flex flex-col items-center justify-center p-1.5 rounded-lg transition text-[10px] min-w-[56px] ${
+              activeTab ===
+              'simulator_setup'
+                ? 'text-indigo-400 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Headphones className="w-4 h-4 mb-0.5" />
+
+            <span>
+              Simulator
+            </span>
+          </button>
+
+          <button
+            type="button"
+            id="mob-nav-live-console"
+            onClick={() => {
+              setActiveTab(
+                'live_console'
+              );
+
+              setIsMobileMenuOpen(
+                false
+              );
+            }}
+            className={`flex flex-col items-center justify-center p-1.5 rounded-lg transition text-[10px] min-w-[56px] relative ${
+              activeTab ===
+              'live_console'
+                ? 'text-indigo-400 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {hasActiveSession && (
+              <span className="absolute top-1 right-3 w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            )}
+
+            <Headphones className="w-4 h-4 mb-0.5" />
+
+            <span>
+              Practice
+            </span>
+          </button>
+
+          <button
+            type="button"
+            id="mob-nav-kb"
+            onClick={() => {
+              setActiveTab(
+                'knowledge_base'
+              );
+
+              setIsMobileMenuOpen(
+                false
+              );
+            }}
+            className={`flex flex-col items-center justify-center p-1.5 rounded-lg transition text-[10px] min-w-[56px] ${
+              activeTab ===
+              'knowledge_base'
+                ? 'text-indigo-400 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 mb-0.5" />
+
+            <span>
+              RAG KB
+            </span>
+          </button>
+        </nav>
+      )}
+    </div>
+  );
+}
