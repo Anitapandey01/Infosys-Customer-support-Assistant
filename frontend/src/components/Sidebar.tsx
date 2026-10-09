@@ -4,13 +4,12 @@ import {
   Headphones,
   PlayCircle,
   BookOpen,
+  FileText,
   Users2,
   ShieldAlert,
   X,
   BrainCircuit,
-  BarChart3,
 } from 'lucide-react';
-
 
 import { UserRole } from '../types';
 
@@ -88,13 +87,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       roles: ['employee', 'admin'],
     },
     {
-      id: 'team_analytics' as ActiveTab,
-      label: 'Analytics',
-      icon: BarChart3,
+      id: 'reports' as ActiveTab,
+      label: 'Reports',
+      icon: FileText,
       roles: ['employee', 'admin'],
     },
   ];
-
 
   const adminItems = [
     {

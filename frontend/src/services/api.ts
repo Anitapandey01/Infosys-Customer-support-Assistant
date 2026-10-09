@@ -13,11 +13,7 @@ import {
   PolicyAccessLevel,
   AuditLogEntry,
   CoachingResponse,
-  KnowledgeRecommendation,
-  PostInteractionSummary,
-  PerformanceAnalyticsData,
 } from '../types';
-
 
 /* ==========================================================================
    API BASE URL
@@ -266,83 +262,13 @@ export async function analyzeTurnApi(params: {
   const analysis =
     backendResponse.analysis;
 
-  const escalation =
-    backendResponse.escalation || (analysis as any).escalation || {};
-
-  const coaching =
-    backendResponse.coaching;
-
-  const firstKnowledge =
-    (backendResponse.knowledge_recommendations?.[0] ||
-      (analysis as any).knowledge_recommendations?.[0]) as Record<string, any> | undefined;
-
-  const escalationScore =
-    escalation.risk_score !== undefined
-      ? Number(escalation.risk_score)
-      : (analysis as any).escalation_risk_score !== undefined
-        ? Number((analysis as any).escalation_risk_score)
-        : 0;
-
-  const escalationLevelStr =
-    escalation.risk_level || analysis.escalation_risk || 'Low';
-
-  const escalationReasonsList: string[] =
-    Array.isArray(escalation.reasons)
-      ? escalation.reasons
-      : Array.isArray((analysis as any).escalation_reasons)
-        ? (analysis as any).escalation_reasons
-        : [];
-
-  const recommendedActionStr =
-    escalation.recommended_action || (analysis as any).escalation_recommended_action || '';
-
-  const suggestedResponseText =
-    coaching?.suggested_response || '';
-
-  const suggestedResponsesMap: Record<string, string> = suggestedResponseText
-    ? {
-        empathetic: suggestedResponseText,
-        professional: suggestedResponseText,
-        deEscalation: suggestedResponseText,
-        quick: suggestedResponseText,
-        concise: suggestedResponseText,
-        detailed: suggestedResponseText,
-      }
-    : {};
-
-  const relevantKnowledgeObj = firstKnowledge
-    ? {
-        kbId: String(firstKnowledge.doc_id || firstKnowledge.kbId || 'KB-101'),
-        title: String(firstKnowledge.title || firstKnowledge.source || 'Knowledge Article'),
-        relevantSection: String(firstKnowledge.section || firstKnowledge.title || 'Guidance'),
-        policySnippet: String(firstKnowledge.content || firstKnowledge.snippet || ''),
-        source: String(firstKnowledge.source || firstKnowledge.title || 'Support Policy'),
-        confidence: Math.round((1.0 - Math.min(1.0, Number(firstKnowledge.distance ?? 0.15))) * 100),
-        troubleshootingSteps: [
-          'Verify account details and transaction history.',
-          'Confirm policy eligibility and calculate accurate amounts.',
-          'Communicate outcome with clear next steps and timeline.'
-        ]
-      }
-    : undefined;
-
-  const agentEvaluationObj = coaching
-    ? {
-        tone: coaching.tone || 'Professional',
-        empathyScore: coaching.communication_rating === 'Good' ? 92 : 72,
-        clarityScore: coaching.communication_rating === 'Good' ? 90 : 70,
-        policyComplianceScore: 95,
-        problemNoticed: coaching.coaching_tips?.[0] || 'Maintain clear and empathetic tone.'
-      }
-    : undefined;
-
   /*
    * Convert backend Task 4 / Task 5 / Task 6 data
    * into the existing frontend MessageAnalysis shape.
+   *
+   * Nothing is generated or hardcoded here.
    */
   return {
-    ...analysis,
-
     intent:
       analysis.intent,
 
@@ -361,7 +287,7 @@ export async function analyzeTurnApi(params: {
       analysis.satisfaction_trend as MessageAnalysis['satisfaction_trend'],
 
     escalation_risk:
-      escalationLevelStr as MessageAnalysis['escalation_risk'],
+      analysis.escalation_risk as MessageAnalysis['escalation_risk'],
 
     confidence:
       Number(
@@ -394,40 +320,18 @@ export async function analyzeTurnApi(params: {
     ],
 
     /*
-     * Task 6 - Escalation fields
+     * Preserve backend knowledge recommendations.
      */
-    escalation_risk_score: escalationScore,
-    escalationRisk: Math.round(escalationScore * 10),
-    escalationLevel: String(escalationLevelStr).toLowerCase(),
-    escalation_risk_threshold: Number(escalation.risk_threshold ?? (analysis as any).escalation_risk_threshold ?? 7),
-    critical_threshold: Number(escalation.critical_threshold ?? (analysis as any).critical_threshold ?? 9),
-    escalation_reasons: escalationReasonsList,
-    riskReasons: escalationReasonsList,
-    escalation_recommended_action: recommendedActionStr,
-    recommendedIntervention: recommendedActionStr,
-    escalation_alert: Boolean(escalation.alert ?? (analysis as any).escalation_alert),
-    critical_alert: Boolean(escalation.critical_alert ?? (analysis as any).critical_alert),
-    escalation_critical_alert: Boolean(escalation.critical_alert ?? (analysis as any).critical_alert),
-
-    /*
-     * Task 6 - Coaching fields
-     */
-    suggestedResponses: suggestedResponsesMap,
-    recommended_response: suggestedResponseText,
-    recommendedResponse: suggestedResponseText,
-    coachWhisper: coaching?.coaching_tips?.[0] || '',
-    whyReasons: coaching?.coaching_tips || [],
-    agentEvaluation: agentEvaluationObj,
-
-    /*
-     * Task 5 - Knowledge fields
-     */
-    relevantKnowledge: relevantKnowledgeObj,
     knowledge_recommendations:
-      (backendResponse.knowledge_recommendations || []) as unknown as KnowledgeRecommendation[],
+      backendResponse.knowledge_recommendations || [],
+
     knowledge_message:
       backendResponse.knowledge_message,
 
+    /*
+     * Preserve complete backend objects for existing
+     * components that may read additional fields.
+     */
     backendAnalysis:
       analysis,
 
@@ -504,8 +408,6 @@ export interface SimulatorAnalysis {
     | 'Critical';
 
   confidence: number;
-
-  [key: string]: any;
 }
 
 export interface EscalationRiskMetadata {
@@ -1168,37 +1070,18 @@ export async function translateApi(
    AUTHENTICATION
    ========================================================================== */
 
-export async function registerApi(
-  name: string,
-  email: string,
-  password: string
-): Promise<{
-  message: string;
-  user_id: number;
-  name: string;
-  email: string;
-  role: string;
-}> {
-  return await safeFetchJson(
-    '/auth/register',
-    {
-      method: 'POST',
+export async function registerApi(name: string, email: string, password: string): Promise<any> {
+  if (!name.trim()) throw new Error('Name is required.');
+  if (!email.trim()) throw new Error('Email is required.');
+  if (!password) throw new Error('Password is required.');
 
-      headers: {
-        'Content-Type':
-          'application/json',
-      },
-
-      body:
-        JSON.stringify({
-          name,
-          email,
-          password,
-        }),
+  return await safeFetchJson('/auth/register', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
     },
-
-    'Registration failed. Please try again.'
-  );
+    body: JSON.stringify({ name, email, password }),
+  }, 'Registration failed.');
 }
 
 export async function loginApi(
@@ -1322,15 +1205,19 @@ export async function logoutApi(): Promise<void> {
    ========================================================================== */
 
 export async function fetchUsersApi(): Promise<UserAccount[]> {
-  return await safeFetchJson<UserAccount[]>(
-    '/api/admin/users',
+  const data = await safeFetchJson<{
+    total_users?: number;
+    users?: UserAccount[];
+  }>(
+    '/users/',
     {
-      headers:
-        getAuthHeaders(),
+      method: 'GET',
+      headers: getAuthHeaders(),
     },
-
     'Failed to fetch user directory.'
   );
+
+  return Array.isArray(data.users) ? data.users : [];
 }
 
 export async function createUserApi(user: {
@@ -1339,28 +1226,17 @@ export async function createUserApi(user: {
   password: string;
   role: UserRole;
 }): Promise<UserAccount> {
-  const data =
-    await safeFetchJson<{
-      user: UserAccount;
-    }>(
-      '/api/admin/users',
-      {
-        method: 'POST',
-
-        headers:
-          getAuthHeaders({
-            'Content-Type':
-              'application/json',
-          }),
-
-        body:
-          JSON.stringify(user),
-      },
-
-      'Failed to create user.'
-    );
-
-  return data.user;
+  return await safeFetchJson<UserAccount>(
+    '/users/',
+    {
+      method: 'POST',
+      headers: getAuthHeaders({
+        'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify(user),
+    },
+    'Failed to create user.'
+  );
 }
 
 export async function updateUserApi(
@@ -1409,6 +1285,111 @@ export async function deleteUserApi(
     },
 
     'Failed to delete user.'
+  );
+}
+
+/* ==========================================================================
+   DOCUMENT KNOWLEDGE BASE
+   ========================================================================== */
+
+export interface BackendDocument {
+  document_id: number;
+  document_name: string;
+  document_type: string;
+  version: number;
+  status: string;
+  filename: string;
+  uploaded_by: string;
+}
+
+export interface DocumentListResponse {
+  total_documents: number;
+  documents: BackendDocument[];
+}
+
+export interface DocumentHistoryResponse {
+  document_name: string;
+  total_versions: number;
+  versions: BackendDocument[];
+}
+
+export async function fetchDocumentsApi(): Promise<DocumentListResponse> {
+  return await safeFetchJson<DocumentListResponse>(
+    '/documents/',
+    { method: 'GET', headers: getAuthHeaders() },
+    'Failed to fetch knowledge base documents.'
+  );
+}
+
+export async function uploadDocumentApi(
+  file: File,
+  documentName: string,
+  documentType: string
+): Promise<unknown> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('document_name', documentName);
+  formData.append('document_type', documentType);
+
+  return await safeFetchJson(
+    '/documents/upload',
+    { method: 'POST', headers: getAuthHeaders(), body: formData },
+    'Failed to upload document.'
+  );
+}
+
+export interface DocumentContentPage {
+  page_number: number;
+  text: string;
+}
+
+export interface DocumentContentResponse {
+  document_id: number;
+  document_name: string;
+  filename: string;
+  document_type: string;
+  version: number;
+  uploaded_by: string;
+  pages: DocumentContentPage[];
+}
+
+export async function fetchDocumentContentApi(
+  documentId: number
+): Promise<DocumentContentResponse> {
+  return await safeFetchJson<DocumentContentResponse>(
+    `/documents/content/${documentId}`,
+    { method: 'GET', headers: getAuthHeaders() },
+    'Failed to read document content.'
+  );
+}
+
+export async function fetchDocumentFileApi(documentId: number): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/documents/file/${documentId}`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    let message = 'Failed to load the PDF document.';
+    try {
+      const payload = await response.json();
+      if (payload?.detail) message = payload.detail;
+    } catch {
+      // Keep the default message when the server does not return JSON.
+    }
+    throw new Error(message);
+  }
+
+  return await response.blob();
+}
+
+export async function fetchDocumentHistoryApi(
+  documentName: string
+): Promise<DocumentHistoryResponse> {
+  return await safeFetchJson<DocumentHistoryResponse>(
+    `/documents/history/${encodeURIComponent(documentName)}`,
+    { method: 'GET', headers: getAuthHeaders() },
+    'Failed to fetch document history.'
   );
 }
 
@@ -1620,93 +1601,135 @@ export async function fetchAuditLogsApi(): Promise<AuditLogEntry[]> {
 }
 
 /* ==========================================================================
-   TASK 8: SUMMARY & PERFORMANCE ANALYTICS API
+   MANUAL MODE HISTORY
    ========================================================================== */
 
-export async function fetchPerformanceAnalyticsApi(): Promise<PerformanceAnalyticsData> {
-  return await safeFetchJson<PerformanceAnalyticsData>(
-    '/api/analytics/performance',
-    {
-      method: 'GET',
-      headers: getAuthHeaders(),
-    },
-    'Failed to fetch performance analytics.'
-  );
+export interface ManualConversationMessage {
+  sender: 'customer' | 'agent';
+  text: string;
+  timestamp?: string;
 }
 
-export async function fetchSessionSummaryApi(
-  sessionId: number | string
-): Promise<PostInteractionSummary> {
-  return await safeFetchJson<PostInteractionSummary>(
-    `/api/sessions/${sessionId}/summary`,
-    {
-      method: 'GET',
-      headers: getAuthHeaders(),
-    },
-    'Failed to fetch session summary.'
-  );
+export interface SaveManualInteractionResponse {
+  success: boolean;
+  message: string;
+  session_id: number;
+  conversation_id: number;
+  status: string;
 }
 
-export async function completeSessionApi(
-  sessionId: number | string,
-  resolutionStatus?: string
-): Promise<PostInteractionSummary> {
-  return await safeFetchJson<PostInteractionSummary>(
-    `/api/sessions/${sessionId}/complete`,
+export async function saveManualInteractionApi(params: {
+  conversation: ManualConversationMessage[];
+  analysis?: Record<string, unknown> | null;
+  status?: string;
+  title?: string;
+}): Promise<SaveManualInteractionResponse> {
+  if (!params.conversation.length) {
+    throw new Error(
+      'Cannot save an empty Manual Mode interaction.'
+    );
+  }
+
+  return await safeFetchJson<SaveManualInteractionResponse>(
+    '/manual/save',
     {
       method: 'POST',
+
       headers: getAuthHeaders({
         'Content-Type': 'application/json',
       }),
+
       body: JSON.stringify({
-        resolution_status: resolutionStatus,
+        conversation: params.conversation,
+        analysis: params.analysis || null,
+        status: params.status || 'Completed',
+        title:
+          params.title ||
+          'Manual Mode Interaction',
       }),
     },
-    'Failed to complete session.'
+
+    'Failed to save Manual Mode interaction.'
   );
 }
 
-export async function generateAdhocSummaryApi(params: {
-  messages: unknown[];
-  sessionId?: string | number;
-  scenarioTitle?: string;
-  resolutionStatus?: string;
-}): Promise<PostInteractionSummary> {
-  return await safeFetchJson<PostInteractionSummary>(
-    '/api/sessions/summary',
-    {
-      method: 'POST',
-      headers: getAuthHeaders({
-        'Content-Type': 'application/json',
-      }),
-      body: JSON.stringify({
-        messages: params.messages,
-        session_id: params.sessionId,
-        scenario_title: params.scenarioTitle,
-        resolution_status: params.resolutionStatus,
-      }),
-    },
-    'Failed to generate conversation summary.'
-  );
+/* ==========================================================================
+   MANUAL MODE HISTORY
+   ========================================================================== */
+
+export interface ManualHistoryItem {
+  session_id: number;
+  conversation_id: number;
+  title?: string;
+  status: string;
+  start_time?: string;
+  end_time?: string;
+  intent?: string;
+  sentiment?: string;
+  resolution_status?: string;
+  escalation_risk?: string;
+  customer_message_count?: number;
+  agent_message_count?: number;
+  analysis?: Record<string, unknown> | null;
+  mode?: 'manual' | 'simulator';
+  scenario_title?: string | null;
+  scenario_category?: string | null;
 }
 
-export async function fetchCompletedSessionsApi(): Promise<
-  {
-    session_id: number;
-    scenario_title: string;
-    primary_issue: string;
-    resolution_status: string;
-    resolution_quality_score: number;
-    communication_quality: string;
-    created_at?: string;
-  }[]
+export async function fetchManualHistoryApi(): Promise<
+  ManualHistoryItem[]
 > {
-  return await safeFetchJson(
-    '/api/sessions/completed',
+  const data = await safeFetchJson<{
+    count?: number;
+    interactions?: ManualHistoryItem[];
+  }>(
+    '/manual/history/all',
     {
       method: 'GET',
       headers: getAuthHeaders(),
     },
-    'Failed to fetch completed sessions.'
+    'Failed to fetch Manual Mode history.'
   );
-}
+
+  return Array.isArray(data.interactions)
+    ? data.interactions
+    : [];
+}
+
+/* ==========================================================================
+   GET ONE MANUAL INTERACTION
+   ========================================================================== */
+
+export interface ManualInteractionDetails {
+  session_id: number;
+  conversation_id: number;
+  status: string;
+  mode?: 'manual' | 'simulator';
+  scenario_title?: string | null;
+  scenario_category?: string | null;
+  scenario_description?: string | null;
+
+  conversation: Array<{
+    id: number;
+    sender: 'customer' | 'agent';
+    text: string;
+    timestamp?: string | null;
+  }>;
+
+  analysis: Record<string, unknown> | null;
+}
+
+export async function fetchManualInteractionApi(
+  sessionId: number
+): Promise<ManualInteractionDetails> {
+  return await safeFetchJson<ManualInteractionDetails>(
+    `/manual/${sessionId}`,
+    {
+      method: 'GET',
+
+      headers: getAuthHeaders(),
+    },
+
+    'Failed to fetch Manual Mode interaction.'
+  );
+}

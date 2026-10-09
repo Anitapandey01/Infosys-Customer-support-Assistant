@@ -634,34 +634,6 @@ def _detect_customer_context(
             or unresolved_count >= 2
         ),
 
-        "current_is_resolved": (
-            _contains_any(
-                current_lower,
-                [
-                    "thank",
-                    "resolved",
-                    "confirmed",
-                    "appreciate",
-                    "fixed",
-                    "helpful",
-                    "satisfied",
-                    "great",
-                ],
-            )
-            and not _contains_any(
-                current_lower,
-                [
-                    "not resolved",
-                    "still not",
-                    "still haven't",
-                    "still have not",
-                    "unresolved",
-                    "no one is helping",
-                    "nobody is helping",
-                ],
-            )
-        ),
-
         "customer_text": customer_text,
         "agent_text": agent_text,
     }
@@ -972,10 +944,7 @@ def _apply_cumulative_analysis(
     # SENTIMENT
     # ------------------------------------------------------------------
 
-    if context.get("current_is_resolved"):
-        result["sentiment"] = "Positive" if current_sentiment != "negative" else "Neutral"
-
-    elif (
+    if (
         context["current_has_hostility"]
         or context["current_has_frustration"]
         or context["current_is_negative"]
@@ -1009,10 +978,7 @@ def _apply_cumulative_analysis(
     # EMOTION
     # ------------------------------------------------------------------
 
-    if context.get("current_is_resolved"):
-        result["emotion"] = "satisfied" if current_emotion in {"frustrated", "angry"} else (current_emotion or "neutral")
-
-    elif context["current_has_hostility"]:
+    if context["current_has_hostility"]:
         result["emotion"] = "angry"
 
     elif (
@@ -1038,12 +1004,7 @@ def _apply_cumulative_analysis(
         conversation
     )
 
-    if context.get("current_is_resolved") or trajectory["trajectory"] == "Improving":
-        result["satisfaction_trend"] = (
-            "Improving"
-        )
-
-    elif trajectory["trajectory"] == "Worsening":
+    if trajectory["trajectory"] == "Worsening":
         result["satisfaction_trend"] = (
             "Declining"
         )
@@ -1197,50 +1158,47 @@ def _apply_cumulative_escalation(
     # EVIDENCE-BASED MINIMUMS
     # ------------------------------------------------------------------
 
-    if context.get("current_is_resolved"):
-        risk_score = min(risk_score, 2)
-    else:
-        if context["current_has_frustration"]:
-            risk_score = max(
-                risk_score,
-                5,
-            )
+    if context["current_has_frustration"]:
+        risk_score = max(
+            risk_score,
+            5,
+        )
 
-        if context["has_urgent_request"]:
-            risk_score = max(
-                risk_score,
-                6,
-            )
+    if context["has_urgent_request"]:
+        risk_score = max(
+            risk_score,
+            6,
+        )
 
-        if context["has_repeated_unresolved_issue"]:
-            risk_score = max(
-                risk_score,
-                6,
-            )
+    if context["has_repeated_unresolved_issue"]:
+        risk_score = max(
+            risk_score,
+            6,
+        )
 
-        if context["has_escalation_request"]:
-            risk_score = max(
-                risk_score,
-                7,
-            )
+    if context["has_escalation_request"]:
+        risk_score = max(
+            risk_score,
+            7,
+        )
 
-        if context["previous_poor_agent_response"]:
-            risk_score = max(
-                risk_score,
-                7,
-            )
+    if context["previous_poor_agent_response"]:
+        risk_score = max(
+            risk_score,
+            7,
+        )
 
-        if context["has_hostile_language"]:
-            risk_score = max(
-                risk_score,
-                8,
-            )
+    if context["has_hostile_language"]:
+        risk_score = max(
+            risk_score,
+            8,
+        )
 
-        if frustration >= 8:
-            risk_score = max(
-                risk_score,
-                8,
-            )
+    if frustration >= 8:
+        risk_score = max(
+            risk_score,
+            8,
+        )
 
     risk_score = max(
         0,
@@ -1277,69 +1235,66 @@ def _apply_cumulative_escalation(
         or []
     )
 
-    if context.get("current_is_resolved"):
-        reasons = ["Customer acknowledged resolution and de-escalated."]
-    else:
-        if (
-            context["current_has_frustration"]
-            and "Customer frustration is increasing." not in reasons
-        ):
-            reasons.append(
-                "Customer frustration is increasing."
-            )
+    if (
+        context["current_has_frustration"]
+        and "Customer frustration is increasing." not in reasons
+    ):
+        reasons.append(
+            "Customer frustration is increasing."
+        )
 
-        if (
-            context["has_negative_context"]
-            and "Customer sentiment is negative." not in reasons
-        ):
-            reasons.append(
-                "Customer sentiment is negative."
-            )
+    if (
+        context["has_negative_context"]
+        and "Customer sentiment is negative." not in reasons
+    ):
+        reasons.append(
+            "Customer sentiment is negative."
+        )
 
-        if (
-            context["has_urgent_request"]
-            and "Customer is making an urgent resolution request."
-            not in reasons
-        ):
-            reasons.append(
-                "Customer is making an urgent resolution request."
-            )
+    if (
+        context["has_urgent_request"]
+        and "Customer is making an urgent resolution request."
+        not in reasons
+    ):
+        reasons.append(
+            "Customer is making an urgent resolution request."
+        )
 
-        if (
-            context["has_escalation_request"]
-            and "Customer explicitly requested escalation or human assistance."
-            not in reasons
-        ):
-            reasons.append(
-                "Customer explicitly requested escalation or human assistance."
-            )
+    if (
+        context["has_escalation_request"]
+        and "Customer explicitly requested escalation or human assistance."
+        not in reasons
+    ):
+        reasons.append(
+            "Customer explicitly requested escalation or human assistance."
+        )
 
-        if (
-            context["has_repeated_unresolved_issue"]
-            and "Previous customer messages indicate an unresolved issue."
-            not in reasons
-        ):
-            reasons.append(
-                "Previous customer messages indicate an unresolved issue."
-            )
+    if (
+        context["has_repeated_unresolved_issue"]
+        and "Previous customer messages indicate an unresolved issue."
+        not in reasons
+    ):
+        reasons.append(
+            "Previous customer messages indicate an unresolved issue."
+        )
 
-        if (
-            context["previous_poor_agent_response"]
-            and "Previous support response did not provide an effective resolution."
-            not in reasons
-        ):
-            reasons.append(
-                "Previous support response did not provide an effective resolution."
-            )
+    if (
+        context["previous_poor_agent_response"]
+        and "Previous support response did not provide an effective resolution."
+        not in reasons
+    ):
+        reasons.append(
+            "Previous support response did not provide an effective resolution."
+        )
 
-        if (
-            context["has_hostile_language"]
-            and "Customer used hostile language during the conversation."
-            not in reasons
-        ):
-            reasons.append(
-                "Customer used hostile language during the conversation."
-            )
+    if (
+        context["has_hostile_language"]
+        and "Customer used hostile language during the conversation."
+        not in reasons
+    ):
+        reasons.append(
+            "Customer used hostile language during the conversation."
+        )
 
     # ------------------------------------------------------------------
     # FINAL ESCALATION RESPONSE

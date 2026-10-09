@@ -1227,15 +1227,19 @@ export async function logoutApi(): Promise<void> {
    ========================================================================== */
 
 export async function fetchUsersApi(): Promise<UserAccount[]> {
-  return await safeFetchJson<UserAccount[]>(
-    '/api/admin/users',
+  const data = await safeFetchJson<{
+    total_users?: number;
+    users?: UserAccount[];
+  }>(
+    '/users/',
     {
-      headers:
-        getAuthHeaders(),
+      method: 'GET',
+      headers: getAuthHeaders(),
     },
-
     'Failed to fetch user directory.'
   );
+
+  return Array.isArray(data.users) ? data.users : [];
 }
 
 export async function createUserApi(user: {
@@ -1248,7 +1252,7 @@ export async function createUserApi(user: {
     await safeFetchJson<{
       user: UserAccount;
     }>(
-      '/api/admin/users',
+      '/users/',
       {
         method: 'POST',
 

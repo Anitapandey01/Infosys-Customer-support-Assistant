@@ -14,3 +14,4 @@ dist/
 Thumbs.db
 backend/app.db
 ~$*
+backend/app.db

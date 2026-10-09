@@ -5,16 +5,22 @@ import React, {
 import {
   AlertTriangle,
   Check,
+  CheckCircle2,
   Copy,
   Loader2,
   MessageSquare,
   RotateCcw,
+  Save,
   ShieldAlert,
 } from 'lucide-react';
 
 import {
   MessageAnalysis,
 } from '../types';
+
+import {
+  saveManualInteractionApi,
+} from '../services/api';
 
 interface ManualModeModalProps {
   isOpen: boolean;
@@ -28,12 +34,48 @@ interface ManualModeModalProps {
 
 interface ConversationItem {
   id: string;
+
   sender:
     | 'customer'
     | 'agent';
+
   text: string;
+
   timestamp: string;
+
   analysis?: MessageAnalysis;
+}
+
+interface CoachingData {
+  suggested_response?: string;
+  tone?: string;
+  clarity?: string;
+  empathy?: string;
+  professionalism?: string;
+  communication_rating?: string;
+  coaching_tips?: string[];
+}
+
+interface EscalationData {
+  risk_score?: number;
+  risk_level?: string;
+  risk_threshold?: number;
+  critical_threshold?: number;
+  reasons?: string[];
+  recommended_action?: string;
+  alert?: boolean;
+  critical_alert?: boolean;
+}
+
+interface KnowledgeRecommendation {
+  chunk_id?: string | number;
+  title?: string;
+  document_name?: string;
+  document_type?: string;
+  version?: string | number;
+  page_number?: string | number;
+  rank?: number;
+  content?: string;
 }
 
 export const ManualModeModal: React.FC<
@@ -56,20 +98,26 @@ export const ManualModeModal: React.FC<
   const [
     conversation,
     setConversation,
-  ] = useState<
-    ConversationItem[]
-  >([]);
+  ] = useState<ConversationItem[]>([]);
 
   const [
     analysisResult,
     setAnalysisResult,
-  ] = useState<
-    MessageAnalysis | null
-  >(null);
+  ] = useState<MessageAnalysis | null>(null);
 
   const [
     isAnalyzing,
     setIsAnalyzing,
+  ] = useState(false);
+
+  const [
+    isSaving,
+    setIsSaving,
+  ] = useState(false);
+
+  const [
+    saveSuccess,
+    setSaveSuccess,
   ] = useState(false);
 
   const [
@@ -88,41 +136,75 @@ export const ManualModeModal: React.FC<
 
   const coaching =
     analysisResult?.coaching as
-      | {
-          suggested_response?: string;
-          tone?: string;
-          clarity?: string;
-          empathy?: string;
-          professionalism?: string;
-          communication_rating?: string;
-          coaching_tips?: string[];
-        }
+      | CoachingData
       | undefined;
 
   const knowledgeRecommendations =
     Array.isArray(
       analysisResult?.knowledge_recommendations
     )
-      ? analysisResult
-          ?.knowledge_recommendations as any[]
+      ? (
+          analysisResult
+            ?.knowledge_recommendations as KnowledgeRecommendation[]
+        )
       : [];
 
   const escalation =
     analysisResult?.escalation as
-      | {
-          risk_score?: number;
-          risk_level?: string;
-          risk_threshold?: number;
-          critical_threshold?: number;
-          reasons?: string[];
-          recommended_action?: string;
-          alert?: boolean;
-          critical_alert?: boolean;
-        }
+      | EscalationData
       | undefined;
 
+  const renderValue = (
+    value: unknown
+  ): string => {
+    if (
+      value === undefined ||
+      value === null ||
+      value === ''
+    ) {
+      return '—';
+    }
+
+    return String(value);
+  };
+
+  const getRiskClass = (
+    risk?: string
+  ): string => {
+    switch (
+      String(
+        risk
+      ).toLowerCase()
+    ) {
+      case 'critical':
+        return 'text-red-400';
+
+      case 'high':
+        return 'text-orange-400';
+
+      case 'medium':
+        return 'text-amber-400';
+
+      case 'low':
+        return 'text-emerald-400';
+
+      default:
+        return 'text-slate-300';
+    }
+  };
+
+  const getTimestamp = (): string => {
+    return new Date().toLocaleTimeString(
+      [],
+      {
+        hour: '2-digit',
+        minute: '2-digit',
+      }
+    );
+  };
+
   const analyzeCustomerMessage =
-    async () => {
+    async (): Promise<void> => {
       const trimmedMessage =
         customerMessage.trim();
 
@@ -132,6 +214,7 @@ export const ManualModeModal: React.FC<
 
       setIsAnalyzing(true);
       setErrorMessage('');
+      setSaveSuccess(false);
       setCopied(false);
 
       try {
@@ -161,15 +244,7 @@ export const ManualModeModal: React.FC<
               text:
                 trimmedMessage,
               timestamp:
-                new Date().toLocaleTimeString(
-                  [],
-                  {
-                    hour:
-                      '2-digit',
-                    minute:
-                      '2-digit',
-                  }
-                ),
+                getTimestamp(),
               analysis:
                 result,
             },
@@ -194,7 +269,7 @@ export const ManualModeModal: React.FC<
     };
 
   const sendAgentResponse =
-    () => {
+    (): void => {
       const trimmedResponse =
         agentResponse.trim();
 
@@ -213,24 +288,18 @@ export const ManualModeModal: React.FC<
             text:
               trimmedResponse,
             timestamp:
-              new Date().toLocaleTimeString(
-                [],
-                {
-                  hour:
-                    '2-digit',
-                  minute:
-                    '2-digit',
-                }
-              ),
+              getTimestamp(),
           },
         ]
       );
 
       setAgentResponse('');
+      setSaveSuccess(false);
+      setErrorMessage('');
     };
 
   const useSuggestedResponse =
-    () => {
+    (): void => {
       const suggested =
         coaching?.suggested_response;
 
@@ -244,7 +313,7 @@ export const ManualModeModal: React.FC<
     };
 
   const copySuggestedResponse =
-    async () => {
+    async (): Promise<void> => {
       const suggested =
         coaching?.suggested_response;
 
@@ -262,10 +331,11 @@ export const ManualModeModal: React.FC<
         );
 
         window.setTimeout(
-          () =>
+          () => {
             setCopied(
               false
-            ),
+            );
+          },
           1500
         );
       } catch {
@@ -275,91 +345,186 @@ export const ManualModeModal: React.FC<
       }
     };
 
+  const saveAndFinish =
+    async (): Promise<void> => {
+      if (
+        conversation.length === 0
+      ) {
+        setErrorMessage(
+          'There is no conversation to save. Please add at least one customer message.'
+        );
+
+        return;
+      }
+
+      const hasCustomerMessage =
+        conversation.some(
+          (item) =>
+            item.sender ===
+            'customer'
+        );
+
+      if (!hasCustomerMessage) {
+        setErrorMessage(
+          'Please add at least one customer message before saving.'
+        );
+
+        return;
+      }
+
+      setIsSaving(true);
+      setErrorMessage('');
+      setSaveSuccess(false);
+
+      try {
+        const result =
+          await saveManualInteractionApi({
+            conversation:
+              conversation.map(
+                (item) => ({
+                  sender:
+                    item.sender,
+
+                  text:
+                    item.text,
+
+                  timestamp:
+                    item.timestamp,
+                })
+              ),
+
+            analysis:
+              analysisResult
+                ? {
+                    intent:
+                      analysisResult.intent,
+
+                    emotion:
+                      analysisResult.emotion,
+
+                    sentiment:
+                      analysisResult.sentiment,
+
+                    frustration_level:
+                      analysisResult.frustration_level,
+
+                    satisfaction_trend:
+                      analysisResult.satisfaction_trend,
+
+                    escalation_risk:
+                      analysisResult.escalation_risk,
+
+                    confidence:
+                      analysisResult.confidence,
+
+                    escalation:
+                      analysisResult.escalation,
+
+                    coaching:
+                      analysisResult.coaching,
+
+                    knowledge_recommendations:
+                      analysisResult.knowledge_recommendations,
+
+                    knowledge_message:
+                      analysisResult.knowledge_message,
+                  }
+                : null,
+
+            status:
+              'Completed',
+
+            title:
+              'Manual Mode Interaction',
+          });
+
+        if (
+          !result?.success
+        ) {
+          throw new Error(
+            result?.message ||
+              'Manual interaction could not be saved.'
+          );
+        }
+
+        setSaveSuccess(
+          true
+        );
+
+        window.setTimeout(
+          () => {
+            onClose();
+          },
+          1200
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Failed to save Manual Mode interaction.';
+
+        setErrorMessage(
+          message
+        );
+      } finally {
+        setIsSaving(
+          false
+        );
+      }
+    };
+
   const resetManualMode =
-    () => {
+    (): void => {
       setCustomerMessage('');
       setAgentResponse('');
       setConversation([]);
       setAnalysisResult(null);
       setErrorMessage('');
+      setSaveSuccess(false);
       setCopied(false);
-    };
-
-  const renderValue = (
-    value: unknown
-  ) => {
-    if (
-      value ===
-        undefined ||
-      value ===
-        null ||
-      value === ''
-    ) {
-      return '—';
-    }
-
-    return String(
-      value
-    );
-  };
-
-  const getRiskClass =
-    (
-      risk?: string
-    ) => {
-      switch (
-        String(
-          risk
-        ).toLowerCase()
-      ) {
-        case 'critical':
-          return 'text-red-400';
-
-        case 'high':
-          return 'text-orange-400';
-
-        case 'medium':
-          return 'text-amber-400';
-
-        case 'low':
-          return 'text-emerald-400';
-
-        default:
-          return 'text-slate-300';
-      }
     };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-7xl max-h-[95vh] overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl flex flex-col">
-        {/* HEADER */}
 
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900">
+      <div className="w-full max-w-7xl max-h-[95vh] overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl flex flex-col">
+
+        {/* ======================================================
+            HEADER
+            ====================================================== */}
+
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 shrink-0">
+
           <div>
             <div className="flex items-center gap-2">
+
               <MessageSquare className="w-5 h-5 text-emerald-400" />
 
               <h2 className="text-lg font-bold text-white">
                 Manual Mode
               </h2>
+
             </div>
 
             <p className="text-xs text-slate-400 mt-1">
-              Live customer-message analysis,
-              coaching and knowledge recommendations
+              Analyze customer messages and receive
+              real-time AI coaching and knowledge support.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
+
             <button
               type="button"
               onClick={
                 resetManualMode
               }
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 text-xs"
+              disabled={
+                isSaving
+              }
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 text-xs disabled:opacity-50"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-
               Reset
             </button>
 
@@ -368,45 +533,58 @@ export const ManualModeModal: React.FC<
               onClick={
                 onClose
               }
-              className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white text-xs"
+              disabled={
+                isSaving
+              }
+              className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white text-xs disabled:opacity-50"
             >
               Close
             </button>
+
           </div>
+
         </div>
 
-        {/* CONTENT */}
+        {/* ======================================================
+            MAIN CONTENT
+            ====================================================== */}
 
         <div className="flex-1 min-h-0 overflow-y-auto p-5">
+
           <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5">
-            {/* LEFT */}
+
+            {/* ==================================================
+                LEFT PANEL
+                ================================================== */}
 
             <section className="space-y-5">
-              {/* CONVERSATION */}
+
+              {/* LIVE CONVERSATION */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
+
                 <div className="px-5 py-4 border-b border-slate-800">
+
                   <h3 className="text-sm font-bold text-white">
                     Live Conversation
                   </h3>
 
                   <p className="text-[11px] text-slate-500 mt-1">
                     Enter a customer message, analyze it,
-                    then enter the agent response.
+                    then enter the support agent response.
                   </p>
+
                 </div>
 
-                <div className="max-h-[340px] overflow-y-auto p-5 space-y-3">
-                  {conversation.length ===
-                  0 ? (
+                <div className="max-h-[360px] overflow-y-auto p-5 space-y-3">
+
+                  {conversation.length === 0 ? (
                     <div className="text-center py-12 text-xs text-slate-500">
                       No messages yet.
                     </div>
                   ) : (
                     conversation.map(
-                      (
-                        item
-                      ) => (
+                      (item) => (
                         <div
                           key={
                             item.id
@@ -418,6 +596,7 @@ export const ManualModeModal: React.FC<
                               : 'justify-end'
                           }`}
                         >
+
                           <div
                             className={`max-w-[85%] rounded-xl px-4 py-3 ${
                               item.sender ===
@@ -426,7 +605,9 @@ export const ManualModeModal: React.FC<
                                 : 'bg-indigo-600/20 border border-indigo-500/30'
                             }`}
                           >
+
                             <div className="flex items-center justify-between gap-4 mb-1">
+
                               <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                                 {item.sender ===
                                 'customer'
@@ -439,21 +620,28 @@ export const ManualModeModal: React.FC<
                                   item.timestamp
                                 }
                               </span>
+
                             </div>
 
-                            <p className="text-xs leading-5 text-slate-200">
+                            <p className="text-xs leading-5 text-slate-200 whitespace-pre-wrap">
                               {
                                 item.text
                               }
                             </p>
+
                           </div>
+
                         </div>
                       )
                     )
                   )}
+
                 </div>
 
+                {/* CUSTOMER INPUT */}
+
                 <div className="border-t border-slate-800 p-4">
+
                   <textarea
                     value={
                       customerMessage
@@ -462,8 +650,7 @@ export const ManualModeModal: React.FC<
                       event
                     ) =>
                       setCustomerMessage(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                     onKeyDown={(
@@ -479,14 +666,21 @@ export const ManualModeModal: React.FC<
                         void analyzeCustomerMessage();
                       }
                     }}
-                    rows={
-                      3
+                    rows={3}
+                    disabled={
+                      isAnalyzing ||
+                      isSaving
                     }
                     placeholder="Paste or type the customer's message..."
-                    className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-emerald-500"
+                    className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-emerald-500 disabled:opacity-60"
                   />
 
-                  <div className="flex justify-end mt-3">
+                  <div className="flex items-center justify-between mt-3">
+
+                    <span className="text-[10px] text-slate-600">
+                      Enter to analyze · Shift + Enter for new line
+                    </span>
+
                     <button
                       type="button"
                       onClick={() =>
@@ -494,30 +688,46 @@ export const ManualModeModal: React.FC<
                       }
                       disabled={
                         isAnalyzing ||
+                        isSaving ||
                         !customerMessage.trim()
                       }
                       className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold"
                     >
+
                       {isAnalyzing ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-
                           Analyzing...
                         </>
                       ) : (
                         'Analyze Customer Message'
                       )}
+
                     </button>
+
                   </div>
+
                 </div>
+
               </div>
 
               {/* AGENT RESPONSE */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                <h3 className="text-sm font-bold text-white mb-3">
-                  Agent Response
-                </h3>
+
+                <div className="flex items-center justify-between mb-3">
+
+                  <h3 className="text-sm font-bold text-white">
+                    Agent Response
+                  </h3>
+
+                  {coaching?.suggested_response && (
+                    <span className="text-[10px] text-indigo-300">
+                      AI suggestion available
+                    </span>
+                  )}
+
+                </div>
 
                 <textarea
                   value={
@@ -527,42 +737,48 @@ export const ManualModeModal: React.FC<
                     event
                   ) =>
                     setAgentResponse(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
-                  rows={
-                    4
+                  rows={4}
+                  disabled={
+                    isSaving
                   }
                   placeholder="Enter the response you would send to the customer..."
-                  className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500"
+                  className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500 disabled:opacity-60"
                 />
 
                 <div className="flex justify-end mt-3">
+
                   <button
                     type="button"
                     onClick={
                       sendAgentResponse
                     }
                     disabled={
+                      isSaving ||
                       !agentResponse.trim()
                     }
-                    className="px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold"
+                    className="px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold"
                   >
                     Add Agent Response
                   </button>
+
                 </div>
+
               </div>
 
               {/* ERROR */}
 
               {errorMessage && (
                 <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 flex gap-3">
+
                   <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
 
                   <div>
+
                     <p className="text-xs font-semibold text-red-300">
-                      Manual analysis failed
+                      Manual Mode Error
                     </p>
 
                     <p className="text-xs text-red-200/80 mt-1">
@@ -570,22 +786,53 @@ export const ManualModeModal: React.FC<
                         errorMessage
                       }
                     </p>
+
                   </div>
+
                 </div>
               )}
+
+              {/* SUCCESS */}
+
+              {saveSuccess && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex gap-3">
+
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+
+                  <div>
+
+                    <p className="text-xs font-semibold text-emerald-300">
+                      Conversation saved successfully
+                    </p>
+
+                    <p className="text-xs text-emerald-200/80 mt-1">
+                      Your Manual Mode conversation has been
+                      saved to history.
+                    </p>
+
+                  </div>
+
+                </div>
+              )}
+
             </section>
 
-            {/* RIGHT */}
+            {/* ==================================================
+                RIGHT PANEL
+                ================================================== */}
 
             <section className="space-y-5">
-              {/* ANALYSIS */}
+
+              {/* LIVE ANALYSIS */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+
                 <h3 className="text-sm font-bold text-white mb-4">
                   Live Analysis
                 </h3>
 
                 <div className="grid grid-cols-2 gap-3">
+
                   <AnalysisField
                     label="Intent"
                     value={
@@ -638,8 +885,9 @@ export const ManualModeModal: React.FC<
                     value={
                       analysisResult
                         ? `${Math.round(
-                            analysisResult.confidence *
-                              100
+                            Number(
+                              analysisResult.confidence
+                            ) * 100
                           )}%`
                         : undefined
                     }
@@ -658,16 +906,20 @@ export const ManualModeModal: React.FC<
                       escalation?.risk_level
                     )}
                   />
+
                 </div>
 
                 {escalation?.alert && (
                   <div className="mt-4 rounded-xl border border-orange-500/30 bg-orange-500/10 p-3">
+
                     <div className="flex items-center gap-2">
+
                       <ShieldAlert className="w-4 h-4 text-orange-400" />
 
                       <span className="text-xs font-bold text-orange-300">
                         Escalation Risk Alert
                       </span>
+
                     </div>
 
                     <p className="text-[11px] text-slate-300 mt-2">
@@ -678,7 +930,9 @@ export const ManualModeModal: React.FC<
                       {' · '}
                       Score:{' '}
                       {
-                        escalation.risk_score
+                        renderValue(
+                          escalation.risk_score
+                        )
                       }
                     </p>
 
@@ -697,14 +951,18 @@ export const ManualModeModal: React.FC<
                         </p>
                       )
                     )}
+
                   </div>
                 )}
+
               </div>
 
-              {/* COACHING */}
+              {/* AI COACHING */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+
                 <div className="flex items-center justify-between mb-4">
+
                   <h3 className="text-sm font-bold text-white">
                     AI Coaching
                   </h3>
@@ -716,39 +974,45 @@ export const ManualModeModal: React.FC<
                       }
                     </span>
                   )}
+
                 </div>
 
                 <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+
                   <div className="flex items-center justify-between gap-3 mb-2">
+
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-300">
                       Suggested Response
                     </span>
 
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={
-                          copySuggestedResponse
-                        }
-                        disabled={
-                          !coaching?.suggested_response
-                        }
-                        className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40"
-                        title="Copy"
-                      >
-                        {copied ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={
+                        copySuggestedResponse
+                      }
+                      disabled={
+                        !coaching?.suggested_response
+                      }
+                      className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40"
+                      title="Copy suggested response"
+                    >
+
+                      {copied ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+
+                    </button>
+
                   </div>
 
                   <p className="text-xs leading-5 text-slate-200">
-                    {renderValue(
-                      coaching?.suggested_response
-                    )}
+                    {
+                      renderValue(
+                        coaching?.suggested_response
+                      )
+                    }
                   </p>
 
                   <button
@@ -763,9 +1027,11 @@ export const ManualModeModal: React.FC<
                   >
                     Use Response
                   </button>
+
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mt-3">
+
                   <CoachingField
                     label="Tone"
                     value={
@@ -793,118 +1059,149 @@ export const ManualModeModal: React.FC<
                       coaching?.professionalism
                     }
                   />
+
                 </div>
 
-                {coaching?.coaching_tips?.length ? (
-                  <div className="mt-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">
-                      Coaching Tips
-                    </p>
+                {coaching?.coaching_tips &&
+                  coaching.coaching_tips.length > 0 && (
+                    <div className="mt-4">
 
-                    <div className="space-y-2">
-                      {coaching.coaching_tips.map(
-                        (
-                          tip,
-                          index
-                        ) => (
-                          <div
-                            key={
-                              `${tip}-${index}`
-                            }
-                            className="rounded-lg bg-slate-950 border border-slate-800 p-3"
-                          >
-                            <p className="text-[11px] text-slate-300 leading-5">
-                              <span className="text-indigo-400 font-bold mr-2">
-                                {index +
-                                  1}
-                                .
-                              </span>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">
+                        Coaching Tips
+                      </p>
 
-                              {tip}
-                            </p>
-                          </div>
-                        )
-                      )}
+                      <div className="space-y-2">
+
+                        {coaching.coaching_tips.map(
+                          (
+                            tip,
+                            index
+                          ) => (
+                            <div
+                              key={
+                                `${tip}-${index}`
+                              }
+                              className="rounded-lg bg-slate-950 border border-slate-800 p-3"
+                            >
+
+                              <p className="text-[11px] text-slate-300 leading-5">
+
+                                <span className="text-indigo-400 font-bold mr-2">
+                                  {index + 1}.
+                                </span>
+
+                                {tip}
+
+                              </p>
+
+                            </div>
+                          )
+                        )}
+
+                      </div>
+
                     </div>
-                  </div>
-                ) : null}
+                  )}
+
               </div>
 
-              {/* KNOWLEDGE */}
+              {/* KNOWLEDGE BASE */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+
                 <h3 className="text-sm font-bold text-white mb-4">
                   Knowledge Recommendations
                 </h3>
 
-                {knowledgeRecommendations.length >
-                0 ? (
+                {knowledgeRecommendations.length > 0 ? (
                   <div className="space-y-3">
+
                     {knowledgeRecommendations.map(
                       (
-                        recommendation
+                        recommendation,
+                        index
                       ) => (
                         <article
                           key={
-                            recommendation.chunk_id
+                            recommendation.chunk_id ??
+                            `${recommendation.title}-${index}`
                           }
                           className="rounded-xl border border-slate-800 bg-slate-950 p-4"
                         >
+
                           <div className="flex items-start justify-between gap-3">
+
                             <div>
+
                               <p className="text-xs font-semibold text-white">
                                 {
                                   recommendation.title ||
-                                  recommendation.document_name
+                                  recommendation.document_name ||
+                                  'Knowledge Recommendation'
                                 }
                               </p>
 
                               <p className="text-[10px] text-slate-500 mt-1">
                                 {
-                                  recommendation.document_type
+                                  recommendation.document_type ||
+                                  'Document'
                                 }
                                 {' · '}
                                 v
                                 {
-                                  recommendation.version
+                                  renderValue(
+                                    recommendation.version
+                                  )
                                 }
                                 {' · Page '}
                                 {
-                                  recommendation.page_number
+                                  renderValue(
+                                    recommendation.page_number
+                                  )
                                 }
                               </p>
+
                             </div>
 
                             <span className="text-[10px] text-indigo-300">
                               #
                               {
-                                recommendation.rank
+                                recommendation.rank ??
+                                index + 1
                               }
                             </span>
+
                           </div>
 
                           <p className="text-[11px] leading-5 text-slate-400 mt-3">
                             {
-                              recommendation.content
+                              recommendation.content ||
+                              'No recommendation content available.'
                             }
                           </p>
+
                         </article>
                       )
                     )}
+
                   </div>
                 ) : (
                   <p className="text-xs text-slate-500">
-                    {renderValue(
-                      analysisResult?.knowledge_message
-                    )}
+                    {
+                      renderValue(
+                        analysisResult?.knowledge_message
+                      )
+                    }
                   </p>
                 )}
+
               </div>
 
               {/* ESCALATION ACTION */}
 
               {escalation?.recommended_action && (
                 <div className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-5">
+
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-300 mb-2">
                     Recommended Action
                   </p>
@@ -914,19 +1211,77 @@ export const ManualModeModal: React.FC<
                       escalation.recommended_action
                     }
                   </p>
+
                 </div>
               )}
+
             </section>
+
           </div>
+
         </div>
+
+        {/* ======================================================
+            FOOTER
+            ====================================================== */}
+
+        <div className="flex items-center justify-between gap-4 px-6 py-4 border-t border-slate-800 bg-slate-900 shrink-0">
+
+          <div className="text-[11px] text-slate-500">
+
+            {conversation.length === 0
+              ? 'No conversation messages yet.'
+              : `${conversation.length} message${
+                  conversation.length === 1
+                    ? ''
+                    : 's'
+                } ready to save.`}
+
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              void saveAndFinish()
+            }
+            disabled={
+              isSaving ||
+              conversation.length === 0
+            }
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold"
+          >
+
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save & Finish
+              </>
+            )}
+
+          </button>
+
+        </div>
+
       </div>
+
     </div>
   );
 };
 
+/* ================================================================
+   ANALYSIS FIELD
+   ================================================================ */
+
 interface AnalysisFieldProps {
   label: string;
+
   value?: unknown;
+
   valueClassName?: string;
 }
 
@@ -938,6 +1293,7 @@ const AnalysisField: React.FC<
   valueClassName = 'text-white',
 }) => (
   <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+
     <span className="text-[10px] text-slate-500 block">
       {label}
     </span>
@@ -951,11 +1307,17 @@ const AnalysisField: React.FC<
         ? '—'
         : String(value)}
     </span>
+
   </div>
 );
 
+/* ================================================================
+   COACHING FIELD
+   ================================================================ */
+
 interface CoachingFieldProps {
   label: string;
+
   value?: unknown;
 }
 
@@ -966,6 +1328,7 @@ const CoachingField: React.FC<
   value,
 }) => (
   <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+
     <span className="text-[9px] uppercase tracking-wide text-slate-500 block">
       {label}
     </span>
@@ -977,5 +1340,6 @@ const CoachingField: React.FC<
         ? '—'
         : String(value)}
     </span>
+
   </div>
 );

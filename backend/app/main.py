@@ -14,8 +14,8 @@ from app.api.manual import router as manual_router
 from app.api.user_management import router as user_management_router
 from app.api.coaching import router as coaching_router
 from app.api.escalation import router as escalation_router
-from app.api.analytics import router as analytics_router
-
+from app.api.report import router as report_router
+from app.api.manual_history import router as manual_history_router
 
 app = FastAPI(
     title="AI Coaching Agent",
@@ -56,8 +56,8 @@ app.include_router(manual_router)
 app.include_router(user_management_router)
 app.include_router(coaching_router)
 app.include_router(escalation_router)
-app.include_router(analytics_router)
-
+app.include_router(report_router)
+app.include_router(manual_history_router)
 
 # --------------------------------------------------
 # Root

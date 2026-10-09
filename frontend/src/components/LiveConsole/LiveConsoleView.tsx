@@ -112,7 +112,6 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
    * We intentionally do NOT use scrollIntoView().
    */
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [rightPanelTab, setRightPanelTab] =
     useState<RightPanelTab>('coaching');
@@ -432,7 +431,6 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
   const applyRecommendedResponse = () => {
     setInputText(recommendedResponse);
     setResponseCopied(true);
-    textareaRef.current?.focus();
 
     window.setTimeout(() => {
       setResponseCopied(false);
@@ -516,7 +514,7 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
     }
 
     return knowledgeDocs
-      .map((rawDocument, index): NormalizedKnowledgeDocument | null => {
+      .map((rawDocument, index) => {
         if (
           !rawDocument ||
           typeof rawDocument !== 'object'
@@ -723,7 +721,7 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
           MAIN WORKSPACE
           ============================================================ */}
 
-      <main className="flex-1 min-h-0 w-full overflow-hidden px-2 py-2 sm:px-3 sm:py-3 lg:px-4 lg:py-3.5">
+      <main className="flex-1 min-h-0 w-full overflow-hidden px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-5">
 
         <div
           className="
@@ -963,7 +961,6 @@ export const LiveConsoleView: React.FC<LiveConsoleViewProps> = ({
               <div className="flex items-end gap-2.5">
 
                 <textarea
-                  ref={textareaRef}
                   value={inputText}
                   onChange={(event) =>
                     setInputText(event.target.value)
