@@ -3,32 +3,30 @@
 > **Role-Based Customer Support & Employee Assistant System with Admin Policy RAG Engine, Multi-File/Folder Uploads, Anti-Hallucination Guardrails & Cited Q&A**
 
 ---
+## Role-Based Access Control (RBAC)
 
-## 🔐 Role-Based Access Control (RBAC) & Accounts
+### 1. Admin
+The Admin has full access to all system features and employee activities, including:
+- Access to all modes and features available to Employees and Customers.
+- **User Management:** Create, view, update, and manage employee and customer accounts and their access permissions.
+- **Admin Audit:** View audit logs and monitor user activities and system operations.
+- **Knowledge Base Management:** Upload, manage, update, and delete policy documents and other knowledge resources.
+- Access Post-Interaction Summary and Performance Analytics.
 
-The application supports three distinct user roles with strict JWT-based server authentication and backend authorization:
+### 2. Employee
+Employees have access to the operational features required to handle customer interactions, including:
+- All three interaction modes: Simulator, Manual, and Replay.
+- **Post-Interaction Summary:** Review conversation summaries, issue resolution, sentiment analysis, and performance feedback.
+- **Knowledge Base:** Access relevant policy documents and knowledge resources to assist customers.
 
-### 1. 🛡️ ADMIN (`admin`)
-* Full system access & control center
-* User Management: Create, edit, assign roles, activate/deactivate, or delete users
-* Policy Management: Drag-and-drop single/multi-file or entire folder uploads (PDF, DOCX, DOC, TXT, CSV, XLSX)
-* Access Level Configuration: Set document permissions (`PUBLIC`, `EMPLOYEE`, `TRAINER`, `ADMIN`)
-* RAG Processing: Reprocess documents, manage chunking, and view extracted text
-* View immutable system activity Audit Logs
-* AI Policy Assistant Q&A
+Employees cannot access User Management or Admin Audit.
 
-### 2. 🎓 TRAINER (`trainer`)
-* Access Trainer Dashboard & Assigned Employee List
-* Create custom AI customer practice scenarios with specified difficulty levels & personas
-* Launch Interactive Practice Simulator & Live Console
-* AI Policy Assistant Q&A (access to `PUBLIC`, `EMPLOYEE`, and `TRAINER` policies)
-* Restricted from Admin Dashboard, User Management, and Policy File Uploads/Deletions (HTTP 403 Forbidden enforced)
+### 3. Customer
+Customers have restricted access to interaction features only, including:
+- Access to the available interaction modes: Simulator, Manual, and Replay.
+- Interact with the AI-powered customer support assistant.
 
-### 3. 👤 EMPLOYEE (`employee`)
-* Access Employee Dashboard & Practice Console
-* Search & download employee-accessible company policy documents
-* Ask AI Policy Assistant questions with verified source citations
-* Restricted from Admin Dashboard, User Management, Policy Management, and System Settings (HTTP 403 Forbidden enforced)
+Customers cannot access Post-Interaction Summary, Performance Analytics, Knowledge Base Management, User Management, or Admin Audit.
 
 ---
 
