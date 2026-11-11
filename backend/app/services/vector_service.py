@@ -1,16 +1,23 @@
-import chromadb
+
+client = None
+collection = None
 
 
-# Create persistent ChromaDB client
-client = chromadb.PersistentClient(
-    path="data/chroma_db"
-)
+def get_collection():
+    global client, collection
 
+    if collection is None:
+        import chromadb
 
-# Create or load our knowledge base collection
-collection = client.get_or_create_collection(
-    name="support_knowledge_base"
-)
+        client = chromadb.PersistentClient(
+            path="data/chroma_db"
+        )
+
+        collection = client.get_or_create_collection(
+            name="support_knowledge_base"
+        )
+
+    return collection
 
 
 def add_document_chunk(
@@ -19,10 +26,7 @@ def add_document_chunk(
     embedding: list,
     metadata: dict
 ):
-    """
-    Store a document chunk, its embedding,
-    and metadata in ChromaDB.
-    """
+    collection = get_collection()
 
     collection.add(
         ids=[chunk_id],
@@ -36,10 +40,7 @@ def search_documents(
     query_embedding: list,
     number_of_results: int = 3
 ):
-    """
-    Search for the most semantically relevant
-    document chunks.
-    """
+    collection = get_collection()
 
     results = collection.query(
         query_embeddings=[query_embedding],
