@@ -32,6 +32,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "https://infosys-customer-support-assistant-six.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
