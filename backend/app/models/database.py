@@ -10,8 +10,7 @@ engine = create_engine(
         "check_same_thread": False,
         "timeout": 30
     },
-    pool_pre_ping=True,
-    connect_args_timeout=30
+    pool_pre_ping=True
 )
 
 SessionLocal = sessionmaker(
